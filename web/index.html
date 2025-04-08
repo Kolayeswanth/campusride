@@ -21,7 +21,7 @@
   <meta name="description" content="A college bus tracking application.">
 
   <!-- iOS meta tags & icons -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="CampusRide">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
@@ -29,17 +29,9 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <!-- Google Maps JavaScript API -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY"></script>
-  <!-- 
-    IMPORTANT: Replace YOUR_GOOGLE_MAPS_API_KEY with your actual Google Maps API key.
-    To get an API key:
-    1. Go to https://console.cloud.google.com/
-    2. Create a new project or select an existing one
-    3. Enable the Maps JavaScript API
-    4. Create credentials (API key)
-    5. Restrict the API key for security
-  -->
+  <!-- MapLibre GL JS -->
+  <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+  <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
 
   <title>CampusRide</title>
   <link rel="manifest" href="manifest.json">
@@ -61,15 +53,6 @@
         },
         onEntrypointLoaded: function(engineInitializer) {
           engineInitializer.initializeEngine().then(function(appRunner) {
-            appRunner.runApp();
-          });
-        }
-      });
-    });
-  </script>
-</body>
-</html>
-
             appRunner.runApp();
           });
         }

@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/bus.dart';
 import '../models/route.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
 /// Trip model to represent a driver's trip
 class Trip {
@@ -727,6 +727,156 @@ class TripService extends ChangeNotifier {
       rethrow;
     }
   }
-} 
+
+  // Fetch route information by routeId
+  Future<Map<String, dynamic>?> fetchRouteInfo(String routeId) async {
+    try {
+      final response = await _supabase
+          .from('routes')
+          .select('*, stops:trip_stops(*)')
+          .eq('id', routeId)
+          .single();
+      
+      if (response != null) {
+        // Format the response
+        final Map<String, dynamic> routeInfo = {
+          'id': response['id'],
+          'name': response['name'],
+          'description': response['description'],
+          'is_active': response['is_active'],
+          'stops': response['stops'] ?? [],
+        };
+        
+        return routeInfo;
+      }
+      
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching route info: $e');
+      return null;
+    }
+  }
+  
+  // Get bus location by busId
+  Future<LatLng?> getBusLocationById(String busId) async {
+    try {
+      final response = await _supabase
+          .from('bus_locations')
+          .select('latitude, longitude')
+          .eq('bus_id', busId)
+          .order('timestamp', ascending: false)
+          .limit(1)
+          .single();
+      
+      if (response != null) {
+        return LatLng(
+          response['latitude'] as double,
+          response['longitude'] as double,
+        );
+      }
+      
+      return null;
+    } catch (e) {
+      debugPrint('Error getting bus location: $e');
+      return null;
+    }
+  }
+  
+  // Start a new trip
+  Future<String?> startNewTrip({
+    required String driverId,
+    required String routeId,
+    required LatLng startLocation,
+  }) async {
+    try {
+      final response = await _supabase
+          .from('trips')
+          .insert({
+            'driver_id': driverId,
+            'route_id': routeId,
+            'status': 'in_progress',
+            'start_location': {
+              'latitude': startLocation.latitude,
+              'longitude': startLocation.longitude,
+            },
+            'actual_start_time': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+      
+      return response['id'] as String;
+    } catch (e) {
+      debugPrint('Error starting trip: $e');
+      return null;
+    }
+  }
+  
+  // End a trip
+  Future<bool> endCurrentTrip({
+    required String tripId,
+    required LatLng endLocation,
+  }) async {
+    try {
+      await _supabase
+          .from('trips')
+          .update({
+            'status': 'completed',
+            'end_location': {
+              'latitude': endLocation.latitude,
+              'longitude': endLocation.longitude,
+            },
+            'end_time': DateTime.now().toIso8601String(),
+          })
+          .eq('id', tripId);
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error ending trip: $e');
+      return false;
+    }
+  }
+  
+  // Update bus location
+  Future<bool> updateBusLocationWithTrip({
+    required String busId,
+    required String tripId,
+    required LatLng location,
+    double? speed,
+    double? heading,
+  }) async {
+    try {
+      await _supabase
+          .from('bus_locations')
+          .insert({
+            'bus_id': busId,
+            'trip_id': tripId,
+            'latitude': location.latitude,
+            'longitude': location.longitude,
+            'speed': speed,
+            'heading': heading,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error updating bus location: $e');
+      return false;
+    }
+  }
+  
+  // Get active trips for a route
+  Future<List<Map<String, dynamic>>> getActiveTrips(String routeId) async {
+    try {
+      final response = await _supabase
+          .from('trips')
+          .select('id, driver_id, route_id, status, actual_start_time')
+          .eq('route_id', routeId)
+          .eq('status', 'in_progress');
+      
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error getting active trips: $e');
+      return [];
+    }
   }
 } 

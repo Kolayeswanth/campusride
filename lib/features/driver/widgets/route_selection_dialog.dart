@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/models/route.dart';
@@ -28,7 +28,7 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
   List<BusRoute> _routes = [];
   bool _isLoading = true;
   String? _error;
-  GoogleMapController? _mapController;
+  MapController? _mapController;
   LatLng? _currentLocation;
   LatLng? _selectedDestination;
   Set<Marker> _markers = {};
@@ -181,23 +181,30 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                                     ? const Center(
                                         child: Text('Loading map...'),
                                       )
-                                    : GoogleMap(
-                                        initialCameraPosition: CameraPosition(
-                                          target: _currentLocation!,
+                                    : FlutterMap(
+                                        options: MapOptions(
+                                          center: _currentLocation!,
                                           zoom: 15,
                                         ),
                                         onMapCreated: (controller) {
                                           _mapController = controller;
                                         },
-                                        markers: _markers,
-                                        polylines: _polylines,
-                                        onTap: (position) {
-                                          setState(() {
-                                            _selectedDestination = position;
-                                            _updateMarkers();
-                                            _calculateRoute();
-                                          });
-                                        },
+                                        children: [
+                                          TileLayer(
+                                            urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                            userAgentPackageName: 'com.example.app',
+                                          ),
+                                          MarkerLayer(
+                                            markers: _markers,
+                                          ),
+                                          PolylineLayer(
+                                            polylines: _polylines,
+                                            options: PolylineOptions(
+                                              strokeWidth: 5,
+                                              color: Colors.blue,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                               ),
                             ),

@@ -2,42 +2,36 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart' as latlong;
 import 'package:geolocator/geolocator.dart';
-import 'package:location/location.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// MapService handles MapLibre integration and map-related operations.
 class MapService extends ChangeNotifier {
-  MapController? _mapController;
-  List<Marker> _markers = [];
-  Map<String, Polyline> _routesMap = {}; // Using a Map to store routes with keys
-  latlong.LatLng _initialPosition = const latlong.LatLng(0, 0);
+  MaplibreMapController? _mapController;
+  List<Symbol> _symbols = [];
+  List<Line> _lines = [];
+  LatLng _initialPosition = const LatLng(0, 0);
   bool _isMapLoaded = false;
   bool _isFollowingUser = true;
-  final Location _location = Location();
-  LocationData? _currentLocation;
+  LatLng? _currentLocation;
   bool _serviceEnabled = false;
-  PermissionStatus? _permissionGranted;
+  LocationPermission? _permissionGranted;
   String? _error;
   final _supabase = Supabase.instance.client;
   StreamSubscription? _locationSubscription;
   StreamSubscription? _busLocationSubscription;
-  Map<String, latlong.LatLng> _busLocations = {};
+  Map<String, LatLng> _busLocations = {};
   Map<String, StreamSubscription> _busSubscriptions = {};
+  LatLng? _selectedLocation;
+  double _zoom = 15.0;
+  bool _isLoading = false;
   
-  /// Map controller
-  MapController? get mapController => _mapController;
-  
-  /// List of map markers
-  List<Marker> get markers => _markers;
-  
-  /// List of route polylines - converted from Map to List for flutter_map
-  List<Polyline> get routes => _routesMap.values.toList();
+  /// Map controller for direct map manipulation
+  MaplibreMapController? get mapController => _mapController;
   
   /// Initial camera position
-  latlong.LatLng get initialPosition => _initialPosition;
+  LatLng get initialPosition => _initialPosition;
   
   /// Whether the map has been loaded
   bool get isMapLoaded => _isMapLoaded;
@@ -51,221 +45,334 @@ class MapService extends ChangeNotifier {
     notifyListeners();
   }
   
-  /// Initialize the map with user's current position
-  Future<void> initializeMap(Position? position) async {
-    if (position != null) {
-      _initialPosition = latlong.LatLng(position.latitude, position.longitude);
+  /// Current user location
+  LatLng? get currentLocation => _currentLocation;
+  
+  /// Selected location on map
+  LatLng? get selectedLocation => _selectedLocation;
+  
+  /// Current zoom level
+  double get zoom => _zoom;
+  
+  /// Loading state
+  bool get isLoading => _isLoading;
+  
+  /// Error message if any
+  String? get error => _error;
+  
+  /// Initialize map with current location
+  Future<void> initializeMap() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      
+      _currentLocation = LatLng(position.latitude, position.longitude);
+      if (_mapController != null) {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(_currentLocation!, _zoom)
+        );
+      }
+      
+    } catch (e) {
+      _error = 'Failed to initialize map: ${e.toString()}';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-    _isMapLoaded = true;
-    _mapController = MapController();
-    notifyListeners();
   }
   
-  /// Set the Map controller
-  void setMapController(MapController controller) {
+  /// Set the Map controller when map is created
+  void onMapCreated(MaplibreMapController controller) {
     _mapController = controller;
+    _isMapLoaded = true;
     notifyListeners();
+    
+    // Initialize map after controller is set
+    initializeMap();
   }
   
-  /// Update user location marker and camera position if following
-  Future<void> updateUserLocation(Position position, {bool animate = true}) async {
+  /// Move map to location
+  Future<void> moveToLocation(LatLng location, {double? zoom}) async {
     if (_mapController == null) return;
     
-    // Update user marker
-    final userMarker = Marker(
-      point: latlong.LatLng(position.latitude, position.longitude),
-      width: 30,
-      height: 30,
-      child: _buildUserMarker(position.heading),
+    await _mapController!.animateCamera(
+      CameraUpdate.newLatLngZoom(location, zoom ?? _zoom)
     );
-    
-    // Replace the user marker if it exists, or add it
-    _markers = [
-      userMarker,
-      ..._markers.where((m) => m.key != const ValueKey('user_location'))
-    ];
-    
-    // Move camera if following is enabled
-    if (_isFollowingUser && animate) {
-      _mapController!.move(
-        latlong.LatLng(position.latitude, position.longitude),
-        15.0,
-      );
-    }
-    
+  }
+  
+  /// Update current location
+  void updateCurrentLocation(LatLng location) {
+    _currentLocation = location;
     notifyListeners();
   }
   
-  /// Build the user marker with heading
-  Widget _buildUserMarker(double heading) {
-    return Transform.rotate(
-      angle: heading * (pi / 180),
-      child: Container(
-        key: const ValueKey('user_location'),
-        decoration: BoxDecoration(
-          color: Colors.blue,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2),
-        ),
-        child: const Icon(
-          Icons.navigation,
-          color: Colors.white,
-          size: 20,
-        ),
-      ),
-    );
+  /// Set selected location
+  void setSelectedLocation(LatLng? location) {
+    _selectedLocation = location;
+    notifyListeners();
   }
   
-  /// Add or update a marker on the map
-  void addMarker({
-    required String id,
-    required latlong.LatLng position,
+  /// Update zoom level
+  void setZoom(double zoom) {
+    _zoom = zoom;
+    notifyListeners();
+  }
+  
+  /// Add a marker to the map
+  Future<Symbol?> addMarker({
+    required LatLng position,
     String? title,
     String? snippet,
-    Color color = Colors.red,
-    VoidCallback? onTap,
-  }) {
-    final marker = Marker(
-      key: ValueKey(id),
-      point: position,
-      width: 30,
-      height: 30,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Column(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-              width: 20,
-              height: 20,
-            ),
-            if (title != null)
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(4),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Text(
-                  title,
-                  style: const TextStyle(fontSize: 10),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
+    String iconImage = 'marker',
+    double iconSize = 1.0,
+    Color iconColor = Colors.red,
+  }) async {
+    if (_mapController == null) return null;
     
-    // Replace marker if it exists with same id, or add it
-    _markers = [
-      marker,
-      ..._markers.where((m) => m.key != ValueKey(id))
-    ];
-    notifyListeners();
+    try {
+      final symbol = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: position,
+          iconImage: iconImage,
+          iconSize: iconSize,
+          textField: title,
+          textOffset: const Offset(0, 1.5),
+          iconColor: iconColor.toHexStringRGB(),
+        ),
+      );
+      
+      _symbols.add(symbol);
+      notifyListeners();
+      return symbol;
+    } catch (e) {
+      _error = 'Failed to add marker: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+  
+  /// Update user location marker
+  Future<void> updateUserLocationMarker(Position position) async {
+    if (_mapController == null) return;
+    
+    try {
+      // Remove old user marker if exists
+      for (final symbol in List.from(_symbols)) {
+        if (symbol.data != null && symbol.data['id'] == 'user_location') {
+          await _mapController!.removeSymbol(symbol);
+          _symbols.remove(symbol);
+        }
+      }
+      
+      // Add new user marker
+      final userMarker = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: LatLng(position.latitude, position.longitude),
+          iconImage: 'user-location',
+          iconSize: 1.0,
+          iconRotate: position.heading,
+          iconColor: Colors.blue.toHexStringRGB(),
+        ),
+        {
+          'id': 'user_location',
+        },
+      );
+      
+      _symbols.add(userMarker);
+      
+      // Move camera if following is enabled
+      if (_isFollowingUser) {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(position.latitude, position.longitude),
+            _zoom,
+          ),
+        );
+      }
+      
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to update user location: $e';
+      notifyListeners();
+    }
   }
   
   /// Remove a marker from the map
-  void removeMarker(String id) {
-    _markers = _markers.where((m) => m.key != ValueKey(id)).toList();
-    notifyListeners();
-  }
-  
-  /// Clear all markers except user location
-  void clearMarkers({bool keepUserLocation = true}) {
-    if (keepUserLocation) {
-      _markers = _markers.where((m) => m.key == const ValueKey('user_location')).toList();
-    } else {
-      _markers = [];
+  Future<void> removeMarker(Symbol symbol) async {
+    if (_mapController == null) return;
+    
+    try {
+      await _mapController!.removeSymbol(symbol);
+      _symbols.remove(symbol);
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to remove marker: $e';
+      notifyListeners();
     }
-    notifyListeners();
   }
   
-  /// Add a route polyline to the map
-  void addRoute({
-    required String id,
-    required List<latlong.LatLng> points,
+  /// Remove a marker by ID from the data property
+  Future<void> removeMarkerById(String id) async {
+    if (_mapController == null) return;
+    
+    try {
+      for (final symbol in List.from(_symbols)) {
+        if (symbol.data != null && symbol.data['id'] == id) {
+          await _mapController!.removeSymbol(symbol);
+          _symbols.remove(symbol);
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to remove marker: $e';
+      notifyListeners();
+    }
+  }
+  
+  /// Clear all markers
+  Future<void> clearMarkers({bool keepUserLocation = true}) async {
+    if (_mapController == null) return;
+    
+    try {
+      for (final symbol in List.from(_symbols)) {
+        if (keepUserLocation && symbol.data != null && symbol.data['id'] == 'user_location') {
+          continue;
+        }
+        await _mapController!.removeSymbol(symbol);
+        _symbols.remove(symbol);
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to clear markers: $e';
+      notifyListeners();
+    }
+  }
+  
+  /// Add a route line to the map
+  Future<Line?> addRoute({
+    required List<LatLng> points,
+    String id = 'route',
     Color color = Colors.blue,
     double width = 4.0,
-    bool isDotted = false,
-  }) {
-    // Create polyline
-    final polyline = Polyline(
-      points: points,
-      color: color,
-      strokeWidth: width,
-      isDotted: isDotted,
-    );
+  }) async {
+    if (_mapController == null) return null;
     
-    // Add or replace route in the Map
-    _routesMap[id] = polyline;
-    notifyListeners();
+    try {
+      // Remove existing route with same ID
+      await removeRouteById(id);
+      
+      // Add new route
+      final line = await _mapController!.addLine(
+        LineOptions(
+          geometry: points,
+          lineColor: color.toHexStringRGB(),
+          lineWidth: width,
+          lineOpacity: 0.7,
+        ),
+        {
+          'id': id,
+        },
+      );
+      
+      _lines.add(line);
+      notifyListeners();
+      return line;
+    } catch (e) {
+      _error = 'Failed to add route: $e';
+      notifyListeners();
+      return null;
+    }
   }
   
   /// Remove a route from the map
-  void removeRoute(String id) {
-    _routesMap.remove(id);
-    notifyListeners();
+  Future<void> removeRoute(Line line) async {
+    if (_mapController == null) return;
+    
+    try {
+      await _mapController!.removeLine(line);
+      _lines.remove(line);
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to remove route: $e';
+      notifyListeners();
+    }
+  }
+  
+  /// Remove a route by ID from the data property
+  Future<void> removeRouteById(String id) async {
+    if (_mapController == null) return;
+    
+    try {
+      for (final line in List.from(_lines)) {
+        if (line.data != null && line.data['id'] == id) {
+          await _mapController!.removeLine(line);
+          _lines.remove(line);
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to remove route: $e';
+      notifyListeners();
+    }
   }
   
   /// Clear all routes
-  void clearRoutes() {
-    _routesMap.clear();
-    notifyListeners();
-  }
-  
-  /// Move camera to a specific position
-  Future<void> moveCameraToPosition(latlong.LatLng position, {double zoom = 15.0}) async {
+  Future<void> clearRoutes() async {
     if (_mapController == null) return;
-    _mapController!.move(position, zoom);
+    
+    try {
+      for (final line in List.from(_lines)) {
+        await _mapController!.removeLine(line);
+      }
+      _lines.clear();
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to clear routes: $e';
+      notifyListeners();
+    }
   }
   
-  /// Move camera to show all provided markers
-  Future<void> fitMapToMarkers(List<Marker> markers, {double padding = 50.0}) async {
-    if (_mapController == null || markers.isEmpty) return;
+  /// Move camera to fit all points
+  Future<void> fitBounds(List<LatLng> points, {double padding = 50.0}) async {
+    if (_mapController == null || points.isEmpty) return;
     
-    final bounds = boundsFromPoints(
-      markers.map((m) => m.point).toList()
-    );
-    
-    final centerZoom = _mapController!.centerZoomFitBounds(bounds, options: FitBoundsOptions(
-      padding: EdgeInsets.all(padding),
-    ));
-    
-    _mapController!.move(centerZoom.center, centerZoom.zoom);
-  }
-  
-  /// Calculate bounds from a list of LatLng points
-  LatLngBounds boundsFromPoints(List<latlong.LatLng> points) {
-    if (points.isEmpty) {
-      return LatLngBounds(latlong.LatLng(0, 0), latlong.LatLng(0, 0));
+    try {
+      // Calculate bounds manually since fromLatLngs is not available
+      double minLat = points[0].latitude;
+      double maxLat = points[0].latitude;
+      double minLng = points[0].longitude;
+      double maxLng = points[0].longitude;
+      
+      for (final point in points) {
+        minLat = minLat < point.latitude ? minLat : point.latitude;
+        maxLat = maxLat > point.latitude ? maxLat : point.latitude;
+        minLng = minLng < point.longitude ? minLng : point.longitude;
+        maxLng = maxLng > point.longitude ? maxLng : point.longitude;
+      }
+      
+      final bounds = LatLngBounds(
+        southwest: LatLng(minLat, minLng),
+        northeast: LatLng(maxLat, maxLng),
+      );
+      
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          bounds,
+          top: padding,
+          right: padding,
+          bottom: padding,
+          left: padding,
+        ),
+      );
+    } catch (e) {
+      _error = 'Failed to fit bounds: $e';
+      notifyListeners();
     }
-
-    double minLat = points.first.latitude;
-    double maxLat = points.first.latitude;
-    double minLng = points.first.longitude;
-    double maxLng = points.first.longitude;
-    
-    for (final point in points) {
-      minLat = min(minLat, point.latitude);
-      maxLat = max(maxLat, point.latitude);
-      minLng = min(minLng, point.longitude);
-      maxLng = max(maxLng, point.longitude);
-    }
-    
-    return LatLngBounds(
-      latlong.LatLng(minLat, minLng),
-      latlong.LatLng(maxLat, maxLng),
-    );
   }
   
   /// Dispose of resources
@@ -276,42 +383,41 @@ class MapService extends ChangeNotifier {
     super.dispose();
   }
   
-  LocationData? get currentLocation => _currentLocation;
-  bool get serviceEnabled => _serviceEnabled;
-  PermissionStatus? get permissionGranted => _permissionGranted;
-  String? get error => _error;
-  
   MapService() {
-    _initLocationService();
+    _checkLocationPermission();
   }
   
-  /// Initialize location service
-  Future<void> _initLocationService() async {
+  /// Check location permission
+  Future<void> _checkLocationPermission() async {
     try {
       // Check if location service is enabled
-      _serviceEnabled = await _location.serviceEnabled();
+      _serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!_serviceEnabled) {
-        _serviceEnabled = await _location.requestService();
-        if (!_serviceEnabled) {
-          _error = 'Location service is disabled';
-          notifyListeners();
-          return;
-        }
+        _error = 'Location service is disabled';
+        notifyListeners();
+        return;
       }
       
       // Check location permission
-      _permissionGranted = await _location.hasPermission();
-      if (_permissionGranted == PermissionStatus.denied) {
-        _permissionGranted = await _location.requestPermission();
-        if (_permissionGranted != PermissionStatus.granted) {
+      _permissionGranted = await Geolocator.checkPermission();
+      if (_permissionGranted == LocationPermission.denied) {
+        _permissionGranted = await Geolocator.requestPermission();
+        if (_permissionGranted == LocationPermission.denied) {
           _error = 'Location permission denied';
           notifyListeners();
           return;
         }
       }
       
+      if (_permissionGranted == LocationPermission.deniedForever) {
+        _error = 'Location permission permanently denied';
+        notifyListeners();
+        return;
+      }
+      
       // Get current location
-      _currentLocation = await _location.getLocation();
+      final position = await Geolocator.getCurrentPosition();
+      _currentLocation = LatLng(position.latitude, position.longitude);
       _error = null;
       notifyListeners();
       
@@ -326,8 +432,14 @@ class MapService extends ChangeNotifier {
   /// Start listening to location updates
   void _startLocationUpdates() {
     _locationSubscription?.cancel();
-    _locationSubscription = _location.onLocationChanged.listen((LocationData locationData) {
-      _currentLocation = locationData;
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen((Position position) {
+      _currentLocation = LatLng(position.latitude, position.longitude);
+      updateUserLocationMarker(position);
       notifyListeners();
     });
   }
@@ -339,18 +451,18 @@ class MapService extends ChangeNotifier {
   }
   
   /// Get current location
-  Future<latlong.LatLng> getCurrentLocation() async {
+  Future<LatLng> getCurrentLocation() async {
     try {
-      final locationData = await _location.getLocation();
-      _currentLocation = locationData;
+      final position = await Geolocator.getCurrentPosition();
+      _currentLocation = LatLng(position.latitude, position.longitude);
       _error = null;
       notifyListeners();
-      return latlong.LatLng(locationData.latitude!, locationData.longitude!);
+      return LatLng(position.latitude, position.longitude);
     } catch (e) {
       _error = 'Failed to get current location: $e';
       notifyListeners();
       // Return default location (campus center) if current location is not available
-      return const latlong.LatLng(33.7756, -84.3963);
+      return const LatLng(33.7756, -84.3963);
     }
   }
   
@@ -366,20 +478,20 @@ class MapService extends ChangeNotifier {
         .eq('bus_id', busId)
         .order('timestamp', ascending: false)
         .limit(1)
-        .listen((data) {
+        .listen((data) async {
           if (data.isNotEmpty) {
             final location = data.first;
             final lat = location['latitude'] as double;
             final lng = location['longitude'] as double;
             
-            _busLocations[busId] = latlong.LatLng(lat, lng);
+            _busLocations[busId] = LatLng(lat, lng);
             
             // Update marker
-            addMarker(
-              id: 'bus_$busId',
-              position: latlong.LatLng(lat, lng),
+            await removeMarkerById('bus_$busId');
+            await addMarker(
+              position: LatLng(lat, lng),
               title: 'Bus $busId',
-              color: Colors.green,
+              iconColor: Colors.green,
             );
             
             notifyListeners();
@@ -392,7 +504,7 @@ class MapService extends ChangeNotifier {
     _busSubscriptions[busId]?.cancel();
     _busSubscriptions.remove(busId);
     _busLocations.remove(busId);
-    removeMarker('bus_$busId');
+    removeMarkerById('bus_$busId');
     notifyListeners();
   }
   
@@ -408,9 +520,9 @@ class MapService extends ChangeNotifier {
         .eq('route_id', routeId)
         .order('timestamp', ascending: false)
         .limit(10)
-        .listen((data) {
+        .listen((data) async {
           // Clear existing bus markers
-          _markers = _markers.where((m) => m.key == const ValueKey('user_location')).toList();
+          await clearMarkers(keepUserLocation: true);
           _busLocations.clear();
           
           // Add new markers for each bus
@@ -419,13 +531,12 @@ class MapService extends ChangeNotifier {
             final lat = location['latitude'] as double;
             final lng = location['longitude'] as double;
             
-            _busLocations[busId] = latlong.LatLng(lat, lng);
+            _busLocations[busId] = LatLng(lat, lng);
             
-            addMarker(
-              id: 'bus_$busId',
-              position: latlong.LatLng(lat, lng),
+            await addMarker(
+              position: LatLng(lat, lng),
               title: 'Bus $busId',
-              color: Colors.green,
+              iconColor: Colors.green,
             );
           }
           
@@ -445,10 +556,24 @@ class MapService extends ChangeNotifier {
     _busSubscriptions.clear();
   }
   
-  /// Calculate distance between two points in meters
-  double calculateDistance(latlong.LatLng point1, latlong.LatLng point2) {
-    final distance = const latlong.Distance().distance(point1, point2);
-    return distance;
+  /// Calculate distance between two points
+  double calculateDistance(LatLng point1, LatLng point2) {
+    return Geolocator.distanceBetween(
+      point1.latitude,
+      point1.longitude,
+      point2.latitude,
+      point2.longitude,
+    );
+  }
+  
+  /// Calculate bearing between two points
+  double calculateBearing(LatLng point1, LatLng point2) {
+    return Geolocator.bearingBetween(
+      point1.latitude,
+      point1.longitude,
+      point2.latitude,
+      point2.longitude,
+    );
   }
   
   /// Format distance in a human-readable format
@@ -488,19 +613,4 @@ class MapService extends ChangeNotifier {
       }
     }
   }
-  
-  /// Get map style URLs for MapTiler
-  String getMapTileUrl({bool darkMode = false}) {
-    // You can use OpenStreetMap tiles (free)
-    return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    
-    // Or if you have a MapTiler key
-    // final mapTilerKey = 'YOUR_MAPTILER_KEY';
-    // return darkMode
-    //     ? 'https://api.maptiler.com/maps/streets-dark/256/{z}/{x}/{y}.png?key=$mapTilerKey'
-    //     : 'https://api.maptiler.com/maps/streets/256/{z}/{x}/{y}.png?key=$mapTilerKey';
-  }
-  
-  // Add MapTiler key if using their service
-  String? mapTilerKey;
 } 

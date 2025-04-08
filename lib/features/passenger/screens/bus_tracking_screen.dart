@@ -1,247 +1,163 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import '../../../core/services/trip_service.dart';
-import '../../../core/theme/theme.dart';
+import 'package:campusride/core/services/map_service.dart';
+import 'package:campusride/core/services/trip_service.dart';
 
 class BusTrackingScreen extends StatefulWidget {
   final String busId;
   final String routeId;
 
   const BusTrackingScreen({
-    super.key,
+    Key? key,
     required this.busId,
     required this.routeId,
-  });
+  }) : super(key: key);
 
   @override
   State<BusTrackingScreen> createState() => _BusTrackingScreenState();
 }
 
 class _BusTrackingScreenState extends State<BusTrackingScreen> {
-  GoogleMapController? _mapController;
-  Set<Marker> _markers = {};
-  Set<Polyline> _polylines = {};
+  late MapService _mapService;
+  late TripService _tripService;
   bool _isLoading = true;
-  String? _error;
-  LatLng? _busLocation;
-  Map<String, dynamic>? _routeData;
-
+  String? _errorMessage;
+  List<Map<String, dynamic>> _busStops = [];
+  
   @override
   void initState() {
     super.initState();
-    _initializeMap();
-    _loadRouteData();
-    _startLocationUpdates();
+    _mapService = Provider.of<MapService>(context, listen: false);
+    _tripService = Provider.of<TripService>(context, listen: false);
+    _initializeTracking();
+  }
+
+  Future<void> _initializeTracking() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Get route information and bus stops
+      final routeInfo = await _tripService.fetchRouteInfo(widget.routeId);
+      
+      if (routeInfo != null && routeInfo.containsKey('stops')) {
+        setState(() {
+          _busStops = List<Map<String, dynamic>>.from(routeInfo['stops']);
+        });
+      }
+      
+      // Start tracking this bus
+      _mapService.subscribeToBusLocation(widget.busId);
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to initialize tracking: $e';
+      });
+    }
   }
 
   @override
   void dispose() {
-    _mapController?.dispose();
+    // Stop tracking when screen is closed
+    _mapService.unsubscribeFromBusLocation(widget.busId);
     super.dispose();
-  }
-
-  Future<void> _initializeMap() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final tripService = context.read<TripService>();
-      final busLocation = await tripService.getBusLocation(widget.routeId);
-      
-      if (busLocation != null) {
-        setState(() {
-          _busLocation = LatLng(busLocation['latitude'], busLocation['longitude']);
-          _updateMarkers();
-          _isLoading = false;
-        });
-
-        if (_mapController != null) {
-          _mapController!.animateCamera(
-            CameraUpdate.newCameraPosition(
-              CameraPosition(
-                target: _busLocation!,
-                zoom: 15,
-              ),
-            ),
-          );
-        }
-      } else {
-        setState(() {
-          _error = 'Bus location not available';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to get bus location: $e';
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _loadRouteData() async {
-    try {
-      final tripService = context.read<TripService>();
-      final routeData = await tripService.getRouteData(widget.routeId);
-      
-      setState(() {
-        _routeData = routeData;
-        _updatePolylines();
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load route data: $e';
-      });
-    }
-  }
-
-  void _startLocationUpdates() {
-    // Update bus location every 10 seconds
-    Future.delayed(const Duration(seconds: 10), () {
-      if (mounted) {
-        _updateBusLocation();
-        _startLocationUpdates();
-      }
-    });
-  }
-
-  Future<void> _updateBusLocation() async {
-    try {
-      final tripService = context.read<TripService>();
-      final busLocation = await tripService.getBusLocation(widget.routeId);
-      
-      if (busLocation != null) {
-        setState(() {
-          _busLocation = LatLng(busLocation['latitude'], busLocation['longitude']);
-          _updateMarkers();
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to update bus location: $e';
-      });
-    }
-  }
-
-  void _updateMarkers() {
-    _markers = {};
-    if (_busLocation != null) {
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('bus_location'),
-          position: _busLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: InfoWindow(title: 'Bus ${widget.busId}'),
-        ),
-      );
-    }
-  }
-
-  void _updatePolylines() {
-    _polylines = {};
-    if (_routeData != null && _routeData!['path_points'] != null) {
-      final List<dynamic> pathPoints = _routeData!['path_points'];
-      final List<LatLng> points = pathPoints.map((point) {
-        return LatLng(point['latitude'], point['longitude']);
-      }).toList();
-      
-      _polylines.add(
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: points,
-          color: Colors.blue,
-          width: 5,
-        ),
-      );
-      
-      // Add markers for stops
-      if (_routeData!['stops'] != null) {
-        final List<dynamic> stops = _routeData!['stops'];
-        for (var stop in stops) {
-          _markers.add(
-            Marker(
-              markerId: MarkerId('stop_${stop['id']}'),
-              position: LatLng(stop['latitude'], stop['longitude']),
-              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-              infoWindow: InfoWindow(title: stop['name']),
-            ),
-          );
-        }
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Bus: ${widget.busId}'),
+        title: Text('Bus ${widget.busId}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _updateBusLocation,
+            onPressed: _initializeTracking,
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : Stack(
-                  children: [
-                    GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: _busLocation ?? const LatLng(0, 0),
-                        zoom: 15,
-                      ),
-                      markers: _markers,
-                      polylines: _polylines,
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: true,
-                      mapType: kIsWeb ? MapType.normal : MapType.normal,
-                      onMapCreated: (GoogleMapController controller) {
-                        setState(() {
-                          _mapController = controller;
-                        });
-                        _initializeMap();
-                      },
-                    ),
-                    if (_routeData != null)
-                      Positioned(
-                        bottom: 16,
-                        left: 16,
-                        right: 16,
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Route: ${_routeData!['name']}',
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                ),
-                                const SizedBox(height: 8),
-                                if (_busLocation != null)
-                                  Text(
-                                    'Bus Location: ${_busLocation!.latitude}, ${_busLocation!.longitude}',
-                                    style: Theme.of(context).textTheme.bodyMedium,
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _updateBusLocation,
-        child: const Icon(Icons.refresh),
-      ),
+      body: _buildBody(),
     );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _initializeTracking,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Consumer<MapService>(
+      builder: (context, mapService, child) {
+        final currentLocation = mapService.currentLocation ?? const LatLng(0, 0);
+        
+        return Stack(
+          children: [
+            MaplibreMap(
+              initialCameraPosition: CameraPosition(
+                target: currentLocation,
+                zoom: 15.0,
+              ),
+              styleString: 'https://demotiles.maplibre.org/style.json', // Free MapLibre style
+              myLocationEnabled: true,
+              trackCameraPosition: true,
+              onMapCreated: (controller) {
+                mapService.onMapCreated(controller);
+                _addBusStopsToMap();
+              },
+            ),
+            Positioned(
+              bottom: 16,
+              right: 16,
+              child: FloatingActionButton(
+                onPressed: () {
+                  if (mapService.currentLocation != null) {
+                    mapService.moveToLocation(mapService.currentLocation!);
+                  }
+                },
+                child: const Icon(Icons.my_location),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _addBusStopsToMap() async {
+    for (final stop in _busStops) {
+      await _mapService.addMarker(
+        position: LatLng(
+          stop['latitude'] as double,
+          stop['longitude'] as double,
+        ),
+        title: stop['name'] as String,
+        iconColor: Colors.green,
+      );
+    }
   }
 } 

@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// AuthService handles authentication state and user session management.
 class AuthService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
+  final _googleSignIn = GoogleSignIn();
+  late SharedPreferences _prefs;
   
   User? _currentUser;
   String? _userRole;
@@ -16,6 +20,12 @@ class AuthService extends ChangeNotifier {
   /// Constructor that sets up auth state listener
   AuthService() {
     _initAuthState();
+    _initPrefs();
+  }
+  
+  /// Initialize SharedPreferences
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
   }
   
   /// Current authenticated user
@@ -34,7 +44,7 @@ class AuthService extends ChangeNotifier {
   bool get isAuthenticated => _currentUser != null;
   
   /// Initialize and listen for auth state changes
-  void _initAuthState() {
+  void _initAuthState() async {
     _isLoading = true;
     notifyListeners();
     
@@ -43,14 +53,14 @@ class AuthService extends ChangeNotifier {
     _currentUser = session?.user;
     
     if (_currentUser != null) {
-      _fetchUserRole();
+      await _fetchUserRole();
     } else {
       _isLoading = false;
       notifyListeners();
     }
     
     // Listen for auth changes
-    _authSubscription = _supabase.auth.onAuthStateChange.listen((data) {
+    _authSubscription = _supabase.auth.onAuthStateChange.listen((data) async {
       final AuthChangeEvent event = data.event;
       final Session? session = data.session;
       
@@ -59,13 +69,15 @@ class AuthService extends ChangeNotifier {
         case AuthChangeEvent.tokenRefreshed:
           _currentUser = session?.user;
           if (_currentUser != null) {
-            _fetchUserRole();
+            await _fetchUserRole();
+            await _saveSession(session!);
           }
           break;
         case AuthChangeEvent.signedOut:
         case AuthChangeEvent.userDeleted:
           _currentUser = null;
           _userRole = null;
+          await _clearSession();
           _isLoading = false;
           notifyListeners();
           break;
@@ -73,6 +85,16 @@ class AuthService extends ChangeNotifier {
           break;
       }
     });
+  }
+  
+  /// Save session to local storage
+  Future<void> _saveSession(Session session) async {
+    await _prefs.setString('session', session.accessToken);
+  }
+  
+  /// Clear session from local storage
+  Future<void> _clearSession() async {
+    await _prefs.remove('session');
   }
   
   /// Fetch user role from profiles table
@@ -178,13 +200,26 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     
     try {
-      await _supabase.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: 'io.supabase.campusride://login-callback/',
+      // Start Google Sign In flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        throw Exception('Google Sign In was cancelled');
+      }
+      
+      // Get auth details
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      // Sign in to Supabase with Google credentials
+      await _supabase.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: googleAuth.idToken!,
+        accessToken: googleAuth.accessToken,
       );
+      
       // Auth state change listener will handle the rest
     } catch (e) {
-      _error = 'Failed to sign in with Google';
+      _error = 'Failed to sign in with Google: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
     }
@@ -278,14 +313,15 @@ class AuthService extends ChangeNotifier {
   /// Sign out
   Future<void> signOut() async {
     _isLoading = true;
-    _error = null;
     notifyListeners();
     
     try {
+      await _googleSignIn.signOut();
       await _supabase.auth.signOut();
-      // Auth state change listener will handle the rest
+      await _clearSession();
     } catch (e) {
-      _error = 'Failed to sign out';
+      _error = 'Failed to sign out: ${e.toString()}';
+    } finally {
       _isLoading = false;
       notifyListeners();
     }

@@ -14,6 +14,7 @@ import 'features/auth/screens/welcome_screen.dart';
 import 'features/auth/screens/role_selection_screen.dart';
 import 'features/passenger/screens/passenger_home_screen.dart';
 import 'features/driver/screens/driver_home_screen.dart';
+import 'features/passenger/screens/bus_tracking_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,8 +27,8 @@ void main() async {
   
   // Initialize Supabase
   await Supabase.initialize(
-    url: 'https://YOUR_SUPABASE_URL.supabase.co',
-    anonKey: 'YOUR_SUPABASE_ANON_KEY',
+    url: 'https://eaxrhqfjiuydbhqxaicv.supabase.co',  // Replace with your Supabase URL
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVheHJocWZqaXV5ZGJocXhhaWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NzYzNTQsImV4cCI6MjA1OTI1MjM1NH0.z54KRmsOnm6kgHXnFF8cW69jZmqvoQa4dV8weYVes8w',  // Replace with your public anon key
     debug: kDebugMode,
   );
   
@@ -44,8 +45,12 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
-        ChangeNotifierProvider(create: (_) => MapService()),
-        ChangeNotifierProvider(create: (_) => TripService()),
+        ChangeNotifierProvider<MapService>(
+          create: (_) => MapService(),
+        ),
+        ChangeNotifierProvider<TripService>(
+          create: (_) => TripService(),
+        ),
       ],
       child: MaterialApp(
         title: 'CampusRide',
