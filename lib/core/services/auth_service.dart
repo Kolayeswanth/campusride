@@ -1,26 +1,41 @@
 import 'dart:async';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// AuthService handles authentication state and user session management.
-class AuthService extends ChangeNotifier {
+class AuthService with ChangeNotifier {
   final _supabase = Supabase.instance.client;
-  final _googleSignIn = GoogleSignIn();
+  late final GoogleSignIn _googleSignIn;
   late SharedPreferences _prefs;
   
   User? _currentUser;
   String? _userRole;
   bool _isLoading = true;
   String? _error;
+  String? _successMessage;
   
   StreamSubscription? _authSubscription;
   
   /// Constructor that sets up auth state listener
   AuthService() {
+    _initGoogleSignIn();
     _initAuthState();
     _initPrefs();
+  }
+
+  /// Initialize GoogleSignIn with appropriate configuration
+  void _initGoogleSignIn() {
+    if (kIsWeb) {
+      _googleSignIn = GoogleSignIn(
+        clientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
+        scopes: ['email', 'profile'],
+      );
+    } else {
+      _googleSignIn = GoogleSignIn();
+    }
   }
   
   /// Initialize SharedPreferences
@@ -39,6 +54,9 @@ class AuthService extends ChangeNotifier {
   
   /// Error message if any
   String? get error => _error;
+  
+  /// Success message if any
+  String? get successMessage => _successMessage;
   
   /// Returns true if user is authenticated
   bool get isAuthenticated => _currentUser != null;
@@ -111,12 +129,17 @@ class AuthService extends ChangeNotifier {
       _userRole = response['role'] as String?;
       _error = null;
     } catch (e) {
-      _error = 'Failed to load user profile';
+      // If the error is because no role exists, that's okay - we'll handle it in needsRoleSelection
+      _userRole = null;
+      _error = null;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
+  
+  /// Check if user needs to select a role
+  bool get needsRoleSelection => isAuthenticated && _userRole == null;
   
   /// Update user role
   Future<void> updateUserRole(String role) async {
@@ -232,7 +255,6 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     
     try {
-      // First step: Sign up the user
       print('Attempting to sign up user with email: $email');
       final response = await _supabase.auth.signUp(
         email: email,
@@ -243,46 +265,22 @@ class AuthService extends ChangeNotifier {
         },
       );
       
-      // Check if sign up was successful and user object was returned
       if (response.user != null) {
-        print('User signed up successfully, user ID: ${response.user!.id}');
-        
-        try {
-          // Second step: Insert into user_profiles table
-          print('Attempting to create user profile record');
-          await _supabase.from('user_profiles').insert({
-            'id': response.user!.id,
-            'email': email,
-            'role': 'passenger', // Default role
-            'created_at': DateTime.now().toIso8601String(),
-          });
-          print('User profile created successfully');
-          
-          // Set local user role
-          _userRole = 'passenger';
-        } catch (profileError) {
-          print('Error creating user profile: $profileError');
-          // If profile creation fails, we should log the specific error
-          // but we don't need to fail the entire registration process
-          // as the user is already authenticated
-          _error = 'Registration successful but profile setup failed: $profileError';
-          _isLoading = false;
-          notifyListeners();
-        }
+        print('User signed up successfully, verification email sent to: $email');
+        _error = null;
+        // Set a success message about email verification instead of profile creation
+        _successMessage = 'Please check your email to verify your account before logging in.';
       } else {
         print('Sign up response did not contain user object');
-        _error = 'Registration failed: No user returned from sign up';
-        _isLoading = false;
-        notifyListeners();
+        _error = 'Registration failed: Please try again';
       }
     } on AuthException catch (e) {
       print('Auth Exception during registration: ${e.message}');
       _error = e.message;
-      _isLoading = false;
-      notifyListeners();
     } catch (e) {
       print('Unexpected error during registration: $e');
-      _error = 'An unexpected error occurred: $e';
+      _error = 'An unexpected error occurred. Please try again.';
+    } finally {
       _isLoading = false;
       notifyListeners();
     }
@@ -431,4 +429,4 @@ class AuthService extends ChangeNotifier {
     _authSubscription?.cancel();
     super.dispose();
   }
-} 
+}

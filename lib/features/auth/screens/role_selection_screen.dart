@@ -61,15 +61,9 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> with SingleTi
     if (authService.error == null) {
       // Successfully updated role
       if (role == 'driver') {
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
-          const DriverHomeScreen(),
-        );
+        Navigator.of(context).pushReplacementNamed('/driver_dashboard');
       } else {
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
-          const PassengerHomeScreen(),
-        );
+        Navigator.of(context).pushReplacementNamed('/passenger_home');
       }
     }
   }
