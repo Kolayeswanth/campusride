@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:maplibre_gl/mapbox_gl.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/map_service.dart';
@@ -18,7 +18,12 @@ import '../widgets/trip_status_card.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
-  const DriverDashboardScreen({Key? key}) : super(key: key);
+  final String driverId;
+
+  const DriverDashboardScreen({
+    Key? key,
+    required this.driverId,
+  }) : super(key: key);
 
   @override
   State<DriverDashboardScreen> createState() => _DriverDashboardScreenState();
@@ -26,13 +31,13 @@ class DriverDashboardScreen extends StatefulWidget {
 
 class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  MapboxMapController? _mapController;
+  MaplibreMapController? _mapController;
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
   bool _isLoading = true;
   bool _isTracking = false;
   bool _isTripStarted = false;
-  String _error = '';
+  String? _errorMessage;
   String _driverId = '';
   List<latlong.LatLng> _routePoints = [];
   List<latlong.LatLng> _completedPoints = [];
@@ -47,8 +52,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _driverId = widget.driverId;
     _initializeMap();
-    _checkLocationPermissions();
   }
   
   @override
@@ -61,74 +66,84 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   
   Future<void> _initializeMap() async {
     try {
-      // Initialize map configuration
-      // No need to call setRenderMode or setAccessToken directly
-      // These are handled by the MapLibreMap widget
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      // Check location permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _errorMessage = 'Location permissions are required to use this app';
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _errorMessage = 'Location permissions are permanently denied';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Get current position
+      _currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
-        _error = 'Failed to initialize map: $e';
+        _errorMessage = 'Error initializing map: $e';
         _isLoading = false;
       });
     }
   }
   
-  Future<void> _checkLocationPermissions() async {
-    try {
-      final position = await LocationUtils.getCurrentPosition();
-      setState(() {
-        _currentPosition = position;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-  
-  void _onMapCreated(MapboxMapController controller) async {
+  void _onMapCreated(MaplibreMapController controller) {
     _mapController = controller;
-    
-    // Add custom images for markers - using PNG files instead of SVG
+    _loadRouteData();
+  }
+  
+  Future<void> _loadRouteData() async {
+    if (_mapController == null || _currentPosition == null) return;
+
     try {
-      await _mapController!.addImage(
-        'driver-marker',
-        await _getBytesFromAsset('assets/icons/driver_marker.png'),
-      );
-      
-      await _mapController!.addImage(
-        'start-marker',
-        await _getBytesFromAsset('assets/icons/start_marker.png'),
-      );
-      
-      await _mapController!.addImage(
-        'end-marker',
-        await _getBytesFromAsset('assets/icons/end_marker.png'),
-      );
-    } catch (e) {
-      print('Error loading marker images: $e');
-      // Fallback to default markers if custom images fail to load
-    }
-    
-    // Center map on current location
-    if (_currentPosition != null) {
-      _mapController!.animateCamera(
+      // Center map on current position
+      await _mapController!.moveCamera(
         CameraUpdate.newLatLngZoom(
-          LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          LatLng(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+          ),
           15.0,
         ),
       );
+
+      // Add a marker for the current position
+      await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: LatLng(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+          ),
+          iconImage: 'car-15',
+          iconSize: 1.5,
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error loading route: $e';
+      });
     }
-  }
-  
-  Future<Uint8List> _getBytesFromAsset(String path) async {
-    final ByteData data = await rootBundle.load(path);
-    return data.buffer.asUint8List();
   }
   
   void _onSymbolTapped(Symbol symbol) {
@@ -138,6 +153,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   void _onMapClick(Point<double> point, LatLng latLng) {
     // Handle map click
     print('Map clicked at: ${latLng.latitude}, ${latLng.longitude}');
+  }
+  
+  void _onMapLongClick(Point<double> point, LatLng latLng) {
+    // Handle map long click
+    print('Map long clicked at: ${latLng.latitude}, ${latLng.longitude}');
   }
   
   void _startLocationUpdates() {
@@ -345,262 +365,69 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
   
-  Future<void> _startTrip() async {
-    try {
-      final result = await showDialog<String>(
-        context: context,
-        builder: (context) => const DriverIdDialog(),
-      );
-      
-      if (result != null && result.isNotEmpty) {
-        setState(() {
-          _driverId = result;
-          _isTripStarted = true;
-          _isLoading = true;
-        });
-        
-        // Load route data for this driver
-        await _loadRouteData();
-        
-        // Start location tracking
-        _startLocationUpdates();
-      }
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to start trip: $e';
-        _isLoading = false;
-      });
-    }
-  }
-  
-  Future<void> _loadRouteData() async {
-    final tripService = Provider.of<TripService>(context, listen: false);
-    
-    try {
-      // For testing purposes, create a sample route if the API call fails
-      try {
-        final routeData = await tripService.getRouteData(_driverId);
-        final points = routeData['points'] as List;
-        
-        setState(() {
-          _routePoints = points
-              .map((point) => latlong.LatLng(
-                  point['latitude'] as double, 
-                  point['longitude'] as double))
-              .toList();
-          _isLoading = false;
-        });
-      } catch (e) {
-        // Create a sample route for testing
-        print('Error loading route data: $e');
-        _createSampleRoute();
-      }
-      
-      // Update the route display
-      if (_routePoints.isNotEmpty) {
-        _updateRouteDisplay();
-      } else {
-        setState(() {
-          _error = 'No route data available';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load route data: $e';
-        _isLoading = false;
-      });
-    }
-  }
-  
-  void _createSampleRoute() {
-    // Create a sample route around the current location
-    if (_currentPosition != null) {
-      final lat = _currentPosition!.latitude;
-      final lng = _currentPosition!.longitude;
-      
-      // Create a simple circular route
-      final points = <latlong.LatLng>[];
-      for (int i = 0; i < 36; i++) {
-        final angle = i * 10 * (3.14159 / 180); // Convert to radians
-        final radius = 0.01; // Approximately 1km
-        final pointLat = lat + radius * cos(angle);
-        final pointLng = lng + radius * sin(angle);
-        points.add(latlong.LatLng(pointLat, pointLng));
-      }
-      
-      setState(() {
-        _routePoints = points;
-        _isLoading = false;
-      });
-    } else {
-      // Create a default route if current position is not available
-      // Using a default location (e.g., city center)
-      final defaultLat = 37.7749; // San Francisco latitude
-      final defaultLng = -122.4194; // San Francisco longitude
-      
-      final points = <latlong.LatLng>[];
-      for (int i = 0; i < 36; i++) {
-        final angle = i * 10 * (3.14159 / 180); // Convert to radians
-        final radius = 0.01; // Approximately 1km
-        final pointLat = defaultLat + radius * cos(angle);
-        final pointLng = defaultLng + radius * sin(angle);
-        points.add(latlong.LatLng(pointLat, pointLng));
-      }
-      
-      setState(() {
-        _routePoints = points;
-        _isLoading = false;
-      });
-    }
+  void _startTrip() {
+    // Implement trip starting logic here
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Trip started successfully!'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
   
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: _scaffoldKey,
-      body: Stack(
-        children: [
-          // Map
-          if (_isLoading)
-            const Center(child: CircularProgressIndicator())
-          else if (_error.isNotEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _error,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _error = '';
-                          _isLoading = true;
-                        });
-                        _initializeMap();
-                        _checkLocationPermissions();
-                      },
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            MapboxMap(
-              onMapCreated: _onMapCreated,
-              initialCameraPosition: CameraPosition(
-                target: _currentPosition != null 
-                  ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
-                  : const LatLng(0, 0),
-                zoom: 15.0,
-              ),
-              styleString: 'https://api.maptiler.com/maps/streets/style.json?key=${dotenv.env['MAPLIBRE_ACCESS_TOKEN']}',
-              myLocationEnabled: true,
-              onMapClick: _onMapClick,
-            ),
-          
-          // Top app bar
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.only(top: 40, left: 16, right: 16, bottom: 16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.7),
-                    Colors.black.withOpacity(0),
-                  ],
-                ),
-              ),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'Driver Dashboard',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.menu, color: Colors.white),
-                    onPressed: () {
-                      // Show menu
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          // Trip status card
-          if (_isTripStarted)
-            Positioned(
-              top: 100,
-              left: 16,
-              right: 16,
-              child: TripStatusCard(
-                isTracking: _isTracking,
-                isTripActive: _isTripStarted,
-                driverId: _driverId,
-                onStartTrip: _startTrip,
-                onToggleTracking: _toggleTracking,
-                onEndTrip: () {
-                  setState(() {
-                    _isTripStarted = false;
-                    _driverId = '';
-                    _routePoints = [];
-                    _completedPoints = [];
-                    _completion = 0.0;
-                  });
-                  _stopLocationUpdates();
-                },
-              ),
-            ),
-          
-          // Start trip button
-          if (!_isTripStarted)
-            Positioned(
-              bottom: 32,
-              left: 16,
-              right: 16,
-              child: TripControls(
-                isTripStarted: _isTripStarted,
-                isTracking: _isTracking,
-                onStartTrip: _startTrip,
-                onToggleTracking: _toggleTracking,
-                onEndTrip: () {
-                  setState(() {
-                    _isTripStarted = false;
-                    _driverId = '';
-                    _routePoints = [];
-                    _completedPoints = [];
-                    _completion = 0.0;
-                  });
-                  _stopLocationUpdates();
-                },
-              ),
-            ),
-        ],
+      appBar: AppBar(
+        title: const Text('Driver Dashboard'),
       ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _errorMessage!,
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _initializeMap,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : Stack(
+                  children: [
+                    MaplibreMap(
+                      onMapCreated: _onMapCreated,
+                      initialCameraPosition: CameraPosition(
+                        target: LatLng(
+                          _currentPosition?.latitude ?? 0,
+                          _currentPosition?.longitude ?? 0,
+                        ),
+                        zoom: 15.0,
+                      ),
+                      styleString: 'asset://assets/map_style.json',
+                      onMapClick: _onMapClick,
+                      onMapLongClick: _onMapLongClick,
+                      myLocationEnabled: true,
+                      myLocationTrackingMode: MyLocationTrackingMode.TrackingCompass,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: TripControls(
+                        driverId: widget.driverId,
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 } 

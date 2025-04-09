@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:maplibre_gl/mapbox_gl.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/map_service.dart';
 import 'core/services/trip_service.dart';
@@ -43,10 +43,10 @@ void main() async {
   // Configure MapLibre
   if (kIsWeb) {
     // Web-specific configuration
-    Mapbox.setAccessToken(dotenv.env['MAPLIBRE_ACCESS_TOKEN'] ?? '');
+    MaplibreGL.setAccessToken(dotenv.env['MAPLIBRE_ACCESS_TOKEN'] ?? '');
   } else {
     // Mobile-specific configuration
-    Mapbox.setRenderMode(RenderMode.surfaceView);
+    MaplibreGL.setRenderMode(MaplibreGL.RenderMode.surfaceView);
   }
   
   runApp(const MyApp());
@@ -82,7 +82,7 @@ class MyApp extends StatelessWidget {
           '/role_selection': (context) => const RoleSelectionScreen(),
           '/passenger_home': (context) => const PassengerHomeScreen(),
           '/driver_home': (context) => const DriverHomeScreen(),
-          '/driver_dashboard': (context) => const DriverDashboardScreen(),
+          '/driver_dashboard': (context) => const DriverDashboardScreen(driverId: 'default'),
         },
       ),
     );
