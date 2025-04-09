@@ -1,0 +1,13 @@
+diff --git a/android/src/main/kotlin/com/dexterous/flutterlocalnotifications/FlutterLocalNotificationsPlugin.kt b/android/src/main/kotlin/com/dexterous/flutterlocalnotifications/FlutterLocalNotificationsPlugin.kt
+index 1234567..abcdef0 100644
+--- a/android/src/main/kotlin/com/dexterous/flutterlocalnotifications/FlutterLocalNotificationsPlugin.kt
++++ b/android/src/main/kotlin/com/dexterous/flutterlocalnotifications/FlutterLocalNotificationsPlugin.kt
+@@ -1234,7 +1234,7 @@ class FlutterLocalNotificationsPlugin: FlutterPlugin, MethodCallHandler {
+                 notificationBuilder.setLargeIcon(bitmap)
+             }
+             if (androidNotificationDetails.bigLargeIcon != null) {
+-                notificationBuilder.setBigLargeIcon(null)
++                notificationBuilder.setBigLargeIcon(null as Bitmap?)
+             }
+             if (androidNotificationDetails.color != null) {
+                 notificationBuilder.color = androidNotificationDetails.color!!

@@ -111,12 +111,17 @@ class AuthService extends ChangeNotifier {
       _userRole = response['role'] as String?;
       _error = null;
     } catch (e) {
-      _error = 'Failed to load user profile';
+      // If the error is because no role exists, that's okay - we'll handle it in needsRoleSelection
+      _userRole = null;
+      _error = null;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
+  
+  /// Check if user needs to select a role
+  bool get needsRoleSelection => isAuthenticated && _userRole == null;
   
   /// Update user role
   Future<void> updateUserRole(String role) async {
