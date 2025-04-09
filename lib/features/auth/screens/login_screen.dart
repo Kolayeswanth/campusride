@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
     
     if (authService.error == null && authService.isAuthenticated) {
       // Successfully signed in - navigate based on role
-      if (authService.userRole == null) {
+      if (authService.needsRoleSelection) {
         // User hasn't selected a role yet
         AnimatedNavigation.fadeInAndRemoveUntil(
           context, 
@@ -55,7 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       } else if (authService.userRole == 'driver') {
         // User is a driver
-        Navigator.of(context).pushReplacementNamed('/driver_home');
+        Navigator.of(context).pushReplacementNamed('/driver_dashboard');
       } else {
         // User is a passenger
         Navigator.of(context).pushReplacementNamed('/passenger_home');
@@ -406,9 +406,9 @@ class _LoginScreenState extends State<LoginScreen> {
       
       if (!mounted) return;
       
-      // Navigate to driver home if no error setting role
+      // Navigate to driver dashboard if no error setting role
       if (authService.error == null) {
-        Navigator.of(context).pushReplacementNamed('/driver_home');
+        Navigator.of(context).pushReplacementNamed('/driver_dashboard');
       }
     }
   }

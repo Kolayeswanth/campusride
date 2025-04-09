@@ -56,39 +56,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     
     if (!mounted) return;
     
-    if (authService.error == null && authService.isAuthenticated) {
-      if (_isDriverRegistration) {
-        // If registering as a driver, set role immediately
-        await authService.updateUserRole('driver');
-        
-        // Store driver verification information in the database
-        await authService.updateDriverInfo(
-          driverId: _driverIdController.text.trim(),
-          licenseNumber: _licenseNumberController.text.trim(),
-        );
-        
-        if (!mounted) return;
-        
-        if (authService.error == null) {
-          // If role was set successfully, go to driver home
-          AnimatedNavigation.fadeInAndRemoveUntil(
-            context, 
-            const DriverHomeScreen(),
-          );
-        } else {
-          // If there was an error setting the role, go to role selection
-          AnimatedNavigation.fadeInAndRemoveUntil(
-            context, 
-            const RoleSelectionScreen(),
-          );
-        }
-      } else {
-        // If standard registration, go to role selection
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
-          const RoleSelectionScreen(),
-        );
-      }
+    if (authService.error == null) {
+      // Show success dialog with email verification message
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: Text('Registration Successful'),
+          content: Text('Please check your email to verify your account before logging in.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+              child: Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Show error if registration failed
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(authService.error!)),
+      );
     }
   }
 
@@ -458,4 +448,4 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
-} 
+}
