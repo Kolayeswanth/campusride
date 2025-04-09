@@ -15,13 +15,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     super.initState();
     // Navigate to dashboard after a short delay
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const DriverDashboardScreen(),
-        ),
-      );
+      _navigateToDashboard();
     });
+  }
+
+  void _navigateToDashboard() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DriverDashboardScreen(
+          driverId: 'DRIVER_${DateTime.now().millisecondsSinceEpoch}',
+        ),
+      ),
+    );
   }
 
   @override
