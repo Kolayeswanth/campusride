@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/map_service.dart';
 import 'core/services/trip_service.dart';
@@ -17,7 +16,6 @@ import 'features/auth/screens/role_selection_screen.dart';
 import 'features/passenger/screens/passenger_home_screen.dart';
 import 'features/driver/screens/driver_home_screen.dart';
 import 'features/driver/screens/driver_dashboard_screen.dart';
-import 'features/passenger/screens/bus_tracking_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,17 +35,6 @@ void main() async {
     anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVheHJocWZqaXV5ZGJocXhhaWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NzYzNTQsImV4cCI6MjA1OTI1MjM1NH0.z54KRmsOnm6kgHXnFF8cW69jZmqvoQa4dV8weYVes8w',
     debug: kDebugMode,
   );
-  
-  debugPrint('Supabase initialized successfully');
-  
-  // Configure MapLibre
-  if (kIsWeb) {
-    // Web-specific configuration
-    MaplibreGL.setAccessToken(dotenv.env['MAPLIBRE_ACCESS_TOKEN'] ?? '');
-  } else {
-    // Mobile-specific configuration
-    MaplibreGL.setRenderMode(MaplibreGL.RenderMode.surfaceView);
-  }
   
   runApp(const MyApp());
 }
@@ -80,9 +67,9 @@ class MyApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/register': (context) => const RegisterScreen(),
           '/role_selection': (context) => const RoleSelectionScreen(),
-          '/passenger_home': (context) => const PassengerHomeScreen(),
-          '/driver_home': (context) => const DriverHomeScreen(),
-          '/driver_dashboard': (context) => const DriverDashboardScreen(driverId: 'default'),
+          '/driver': (context) => const DriverHomeScreen(),
+          '/driver_dashboard': (context) => const DriverDashboardScreen(),
+          '/passenger': (context) => const PassengerHomeScreen(),
         },
       ),
     );

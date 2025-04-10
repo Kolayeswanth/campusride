@@ -193,7 +193,7 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
     // Add markers for route start and end
     mapService.addMarker(
       id: 'route_start',
-      position: _routePoints.first,
+      position: LatLng(_routePoints.first.latitude, _routePoints.first.longitude),
       title: 'Start',
       color: Colors.green,
     );

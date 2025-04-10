@@ -20,14 +20,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   void _navigateToDashboard() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DriverDashboardScreen(
-          driverId: 'DRIVER_${DateTime.now().millisecondsSinceEpoch}',
-        ),
-      ),
-    );
+    Navigator.pushNamed(context, '/driver_dashboard');
   }
 
   @override
