@@ -122,7 +122,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
                 target: currentLocation,
                 zoom: 15.0,
               ),
-              styleString: 'https://demotiles.maplibre.org/style.json', // Free MapLibre style
+              styleString: 'asset://assets/map_style.json',
               myLocationEnabled: true,
               trackCameraPosition: true,
               onMapCreated: (controller) {
