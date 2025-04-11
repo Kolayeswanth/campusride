@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:ui' hide Point;
 import 'package:flutter/material.dart';
 import '../../core/theme/theme.dart';
 

@@ -36,20 +36,47 @@
   <title>CampusRide</title>
   <link rel="manifest" href="manifest.json">
 
-  <script>
-    window.flutterWebRenderer = "html";
-  </script>
+  <!-- This script adds the flutter initialization JS code -->
   <script src="flutter.js" defer></script>
 </head>
 <body>
   <script>
     window.addEventListener('load', function(ev) {
-      _flutter.loader.loadEntrypoint({
-        onEntrypointLoaded: async function(engineInitializer) {
-          let appRunner = await engineInitializer.initializeEngine();
-          await appRunner.runApp();
+      // Add a loading indicator
+      var loading = document.createElement('div');
+      loading.style.position = 'absolute';
+      loading.style.top = '50%';
+      loading.style.left = '50%';
+      loading.style.transform = 'translate(-50%, -50%)';
+      loading.style.textAlign = 'center';
+      loading.innerHTML = `
+        <div style="font-family: Arial, sans-serif; color: #444;">
+          <div style="font-size: 24px; margin-bottom: 16px;">Loading CampusRide</div>
+          <div style="width: 48px; height: 48px; border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; margin: 0 auto; animation: spin 1s linear infinite;"></div>
+        </div>
+        <style>
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      `;
+      document.body.appendChild(loading);
+
+      // Initialize Flutter
+      var scriptLoaded = false;
+      function loadMainDartJs() {
+        if (scriptLoaded) {
+          return;
         }
-      });
+        scriptLoaded = true;
+        var scriptTag = document.createElement('script');
+        scriptTag.src = 'main.dart.js';
+        scriptTag.type = 'application/javascript';
+        document.body.appendChild(scriptTag);
+      }
+
+      loadMainDartJs();
     });
   </script>
 </body>

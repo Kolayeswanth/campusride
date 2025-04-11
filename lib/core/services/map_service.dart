@@ -87,13 +87,15 @@ class MapService extends ChangeNotifier {
   }
   
   /// Set the Map controller when map is created
-  void onMapCreated(MaplibreMapController controller) {
-    _mapController = controller;
-    _isMapLoaded = true;
-    notifyListeners();
-    
-    // Initialize map after controller is set
-    initializeMap();
+  void onMapCreated(dynamic controller) {
+    if (controller is MaplibreMapController) {
+      _mapController = controller;
+      _isMapLoaded = true;
+      notifyListeners();
+      
+      // Initialize map after controller is set
+      initializeMap();
+    }
   }
   
   /// Move map to location
