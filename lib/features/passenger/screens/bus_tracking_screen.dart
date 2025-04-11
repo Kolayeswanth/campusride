@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:provider/provider.dart';
 import 'package:campusride/core/services/map_service.dart';
 import 'package:campusride/core/services/trip_service.dart';
+import 'package:campusride/core/widgets/platform_safe_map.dart';
 
 class BusTrackingScreen extends StatefulWidget {
   final String busId;
@@ -117,19 +119,40 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         
         return Stack(
           children: [
-            MaplibreMap(
-              initialCameraPosition: CameraPosition(
-                target: currentLocation,
-                zoom: 15.0,
-              ),
-              styleString: 'asset://assets/map_style.json',
-              myLocationEnabled: true,
-              trackCameraPosition: true,
-              onMapCreated: (controller) {
-                mapService.onMapCreated(controller);
-                _addBusStopsToMap();
-              },
-            ),
+            kIsWeb 
+              ? Container(
+                  color: Colors.grey[200],
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.map, size: 64, color: Colors.grey[400]),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Map view is not available in web preview',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Please use the mobile app for full functionality',
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : PlatformSafeMap(
+                  initialCameraPosition: CameraPosition(
+                    target: currentLocation,
+                    zoom: 15.0,
+                  ),
+                  myLocationEnabled: true,
+                  trackCameraPosition: true,
+                  onMapCreated: (dynamic controller) {
+                    mapService.onMapCreated(controller);
+                    _addBusStopsToMap();
+                  },
+                ),
             Positioned(
               bottom: 16,
               right: 16,
