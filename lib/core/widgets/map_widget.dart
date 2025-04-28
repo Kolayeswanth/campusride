@@ -65,11 +65,6 @@ class _MapScreenState extends State<MapScreen> {
   void _onMapCreated(dynamic controller) {
     if (controller is MaplibreMapController) {
       mapController = controller;
-      
-      // Add map style loaded callback
-      controller.maplibrePlatform.onMapStyleLoadedPlatform.add((_) {
-        print("Map style loaded successfully!");
-      });
     }
     
     // Notify the map service about the controller

@@ -3,6 +3,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:provider/provider.dart';
+import '../services/map_service.dart';
+import 'dart:async';
 
 /// A web-safe implementation of a map widget using flutter_map package
 /// which is compatible with web platforms.
@@ -27,130 +30,144 @@ class WebMap extends StatefulWidget {
 }
 
 class _WebMapState extends State<WebMap> {
-  late MapController _mapController;
-  LatLng? _currentLocation;
+  final MapController _mapController = MapController();
   List<Marker> _markers = [];
   List<Polyline> _polylines = [];
-  
+  LatLng? _currentLocation;
+
   @override
   void initState() {
     super.initState();
-    _mapController = MapController();
-    
-    // Call onMapCreated callback if provided
     if (widget.onMapCreated != null) {
-      // Use Future.delayed to ensure the controller is ready
-      Future.delayed(Duration.zero, () => widget.onMapCreated!(_mapController));
+      widget.onMapCreated!(_mapController);
     }
-    
     if (widget.showMyLocation) {
       _getCurrentLocation();
     }
   }
-  
+
   Future<void> _getCurrentLocation() async {
     try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final requestedPermission = await Geolocator.requestPermission();
-        if (requestedPermission == LocationPermission.denied) {
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        return;
-      }
-
       final position = await Geolocator.getCurrentPosition();
       setState(() {
         _currentLocation = LatLng(position.latitude, position.longitude);
-        _updateMarkers();
+        _addCurrentLocationMarker();
       });
     } catch (e) {
       print('Error getting location: $e');
     }
   }
-  
-  void _updateMarkers() {
+
+  void _addCurrentLocationMarker() {
     if (_currentLocation == null) return;
-    
+
     setState(() {
-      _markers = [
-        ..._markers.where((marker) => marker.key != const Key('current_location')),
+      _markers.removeWhere((marker) => marker.key == const Key('current_location'));
+      _markers.add(
         Marker(
           key: const Key('current_location'),
           point: _currentLocation!,
           width: 30,
           height: 30,
-          child: const Icon(
-            Icons.location_on,
-            color: Colors.blue,
-            size: 30,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.7),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            child: const Icon(
+              Icons.my_location,
+              color: Colors.white,
+              size: 20,
+            ),
           ),
         ),
-      ];
+      );
     });
   }
-  
+
   void _addDestinationMarker(LatLng point) {
-    setState(() {
-      _markers = [
-        ..._markers.where((marker) => marker.key != const Key('destination')),
-        Marker(
-          key: const Key('destination'),
-          point: point,
-          width: 30,
-          height: 30,
-          child: const Icon(
-            Icons.place,
+    // Remove old destination marker
+    _markers.removeWhere((marker) => marker.key == const Key('destination'));
+
+    // Add new destination marker
+    _markers.add(
+      Marker(
+        key: const Key('destination'),
+        point: point,
+        width: 30,
+        height: 30,
+        child: Container(
+          decoration: const BoxDecoration(
             color: Colors.red,
-            size: 30,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.location_on,
+            color: Colors.white,
+            size: 20,
           ),
         ),
-      ];
-      
-      // If we have current location, add a route line
-      if (_currentLocation != null) {
-        _polylines = [
-          Polyline(
-            points: [_currentLocation!, point],
-            color: Colors.blue,
-            strokeWidth: 3.0,
-          ),
-        ];
-      }
-    });
+      ),
+    );
+
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    // Get MapTiler API key from .env file
-    final mapTilerKey = dotenv.env['MAPTILER_API_KEY'] ?? '';
+    final mapService = Provider.of<MapService>(context);
     
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: widget.initialCenter,
-        initialZoom: widget.initialZoom,
-        onTap: widget.onTap != null 
-            ? (_, point) {
-                widget.onTap!(point);
-                _addDestinationMarker(point);
-              } 
-            : null,
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=$mapTilerKey',
-          userAgentPackageName: 'com.campusride.app',
-          additionalOptions: {
-            'tileSize': '512',
-            'zoomOffset': '-1',
-          },
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: widget.initialCenter,
+            initialZoom: widget.initialZoom,
+            onTap: widget.onTap != null 
+                ? (_, point) {
+                    widget.onTap!(point);
+                    _addDestinationMarker(point);
+                  } 
+                : null,
+            interactionOptions: const InteractionOptions(
+              enableScrollWheel: true,
+              enableMultiFingerGestureRace: true,
+            ),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: mapService.mapStyleString,
+              userAgentPackageName: 'com.campusride.app',
+              additionalOptions: const {
+                'tileSize': '512',
+                'zoomOffset': '-1',
+              },
+            ),
+            MarkerLayer(markers: _markers),
+            PolylineLayer(polylines: _polylines),
+          ],
         ),
-        MarkerLayer(markers: _markers),
-        PolylineLayer(polylines: _polylines),
+        if (widget.showMyLocation)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              mini: true,
+              backgroundColor: Colors.white,
+              onPressed: () {
+                _getCurrentLocation();
+                if (_currentLocation != null) {
+                  _mapController.move(_currentLocation!, widget.initialZoom);
+                }
+              },
+              child: const Icon(
+                Icons.my_location,
+                color: Colors.blue,
+              ),
+            ),
+          ),
       ],
     );
   }

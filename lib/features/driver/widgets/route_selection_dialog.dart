@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart' as geo; // Import with alias
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/location_service.dart';
+import '../../../core/services/map_service.dart';  // Import MapService
 import '../../../core/models/route.dart';
 
 class RouteSelectionDialog extends StatefulWidget {
@@ -11,13 +13,13 @@ class RouteSelectionDialog extends StatefulWidget {
   final LocationService locationService;
 
   const RouteSelectionDialog({
-    super.key,
+    Key? key,
     required this.tripService,
     required this.locationService,
-  });
+  }) : super(key: key);
 
   @override
-  State<RouteSelectionDialog> createState() => _RouteSelectionDialogState();
+  _RouteSelectionDialogState createState() => _RouteSelectionDialogState();
 }
 
 class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
@@ -25,14 +27,14 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
   final _busIdController = TextEditingController();
   final _destinationController = TextEditingController();
   BusRoute? _selectedRoute;
-  List<BusRoute> _routes = [];
+  List<BusRoute> _routes = [];  // Use BusRoute model
   bool _isLoading = true;
   String? _error;
-  MapController? _mapController;
   LatLng? _currentLocation;
   LatLng? _selectedDestination;
-  Set<Marker> _markers = {};
-  Set<Polyline> _polylines = {};
+  final List<Marker> _markers = []; // Use list of Marker
+  final List<Polyline> _polylines = []; // Use list of Polyline
+  MapController _mapController = MapController(); // Create an instance
 
   @override
   void initState() {
@@ -43,7 +45,8 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      final position = await Geolocator.getCurrentPosition();
+      final position = await geo.Geolocator.getCurrentPosition( // Use alias
+          desiredAccuracy: geo.LocationAccuracy.high);  // Use alias
       setState(() {
         _currentLocation = LatLng(position.latitude, position.longitude);
         _updateMarkers();
@@ -56,22 +59,30 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
   }
 
   void _updateMarkers() {
-    _markers = {};
+    _markers.clear();  // Clear the existing markers
+
     if (_currentLocation != null) {
       _markers.add(
         Marker(
-          markerId: const MarkerId('current_location'),
-          position: _currentLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          width: 40.0,
+          height: 40.0,
+          point: _currentLocation!,
+          builder: (ctx) => Container(
+            child: const Icon(Icons.location_pin, color: Colors.blue),
+          ),
         ),
       );
     }
+
     if (_selectedDestination != null) {
       _markers.add(
         Marker(
-          markerId: const MarkerId('destination'),
-          position: _selectedDestination!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          width: 40.0,
+          height: 40.0,
+          point: _selectedDestination!,
+          builder: (ctx) => Container(
+            child: const Icon(Icons.pin_drop, color: Colors.red),
+          ),
         ),
       );
     }
@@ -83,10 +94,9 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
         _isLoading = true;
         _error = null;
       });
-
       final routes = await widget.tripService.loadRoutes();
       setState(() {
-        _routes = routes;
+        _routes = routes.map((e) => e as BusRoute).toList();  // Cast routes
         _isLoading = false;
       });
     } catch (e) {
@@ -99,19 +109,35 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
 
   Future<void> _calculateRoute() async {
     if (_currentLocation == null || _selectedDestination == null) return;
-
     try {
-      // Here you would typically call a directions API to get the route
-      // For now, we'll just draw a straight line
+      // Use the TripService to calculate the route using OpenRouteService API
+      final routePoints = await widget.tripService.calculateRoute(
+        LatLng(_currentLocation!.latitude, _currentLocation!.longitude),
+        LatLng(_selectedDestination!.latitude, _selectedDestination!.longitude),
+      );
+      
       setState(() {
-        _polylines = {
-          Polyline(
-            polylineId: const PolylineId('route'),
-            points: [_currentLocation!, _selectedDestination!],
-            color: Colors.blue,
-            width: 5,
-          ),
-        };
+        _polylines.clear();  // Clear existing polylines
+        
+        // If we got route points from the API, use them
+        if (routePoints.isNotEmpty) {
+          _polylines.add(
+            Polyline(
+              points: routePoints.map((point) => LatLng(point.latitude, point.longitude)).toList(),
+              color: Colors.blue,
+              strokeWidth: 5,
+            ),
+          );
+        } else {
+          // Fallback to a straight line if no route was returned
+          _polylines.add(
+            Polyline(
+              points: [_currentLocation!, _selectedDestination!],
+              color: Colors.blue,
+              strokeWidth: 5,
+            ),
+          );
+        }
       });
     } catch (e) {
       setState(() {
@@ -161,6 +187,8 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                     onChanged: (value) {
                       // Here you would typically implement geocoding to convert
                       // the text input to coordinates
+                      // For example:
+                      // _geocodeDestination(value);
                     },
                   ),
                 ],
@@ -182,27 +210,29 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                                         child: Text('Loading map...'),
                                       )
                                     : FlutterMap(
+                                        mapController: _mapController, // Use controller instance
                                         options: MapOptions(
                                           center: _currentLocation!,
                                           zoom: 15,
+                                          onTap: (tapPosition, point) {
+                                            setState(() {
+                                              _selectedDestination = point;
+                                              _updateMarkers();
+                                              _calculateRoute();
+                                            });
+                                          },
                                         ),
-                                        onMapCreated: (controller) {
-                                          _mapController = controller;
-                                        },
                                         children: [
                                           TileLayer(
-                                            urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                            urlTemplate:
+                                                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                                             userAgentPackageName: 'com.example.app',
                                           ),
                                           MarkerLayer(
-                                            markers: _markers,
+                                            markers: _markers, // Use _markers list
                                           ),
                                           PolylineLayer(
-                                            polylines: _polylines,
-                                            options: PolylineOptions(
-                                              strokeWidth: 5,
-                                              color: Colors.blue,
-                                            ),
+                                            polylines: _polylines, // Use _polylines list
                                           ),
                                         ],
                                       ),
@@ -216,7 +246,8 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                                   final route = _routes[index];
                                   return RadioListTile<BusRoute>(
                                     title: Text(route.name),
-                                    subtitle: Text('${route.startLocation} → ${route.endLocation}'),
+                                    subtitle: Text(
+                                        '${route.startLocation} → ${route.endLocation}'),
                                     value: route,
                                     groupValue: _selectedRoute,
                                     onChanged: (value) {
@@ -270,7 +301,7 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
   void dispose() {
     _busIdController.dispose();
     _destinationController.dispose();
-    _mapController?.dispose();
+    _mapController.dispose(); // Dispose the map controller
     super.dispose();
   }
-} 
+}

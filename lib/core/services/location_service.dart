@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
-/// LocationService handles real-time location tracking and updates
 class LocationService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
   
@@ -14,41 +13,32 @@ class LocationService extends ChangeNotifier {
   bool _isTracking = false;
   String? _error;
   
-  /// Current position
   Position? get currentPosition => _currentPosition;
-  
-  /// Whether location tracking is active
   bool get isTracking => _isTracking;
-  
-  /// Error message if any
   String? get error => _error;
   
-  /// Start location tracking
   Future<void> startTracking(String userId, String role) async {
     if (_isTracking) return;
     
     try {
-      // Check location permissions
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         final requested = await Geolocator.requestPermission();
         if (requested == LocationPermission.denied) {
           throw Exception('Location permissions are required');
+        } else if (requested == LocationPermission.deniedForever) {
+          throw Exception('Location permissions are permanently denied. Please enable them from the app settings.');
         }
       }
       
-      // Start position updates
       _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          distanceFilter: 10, // Update every 10 meters
+          distanceFilter: 10,
         ),
       ).listen((Position position) async {
         _currentPosition = position;
-        
-        // Update location in Supabase
         await _updateLocation(userId, role, position);
-        
         notifyListeners();
       });
       
@@ -63,16 +53,14 @@ class LocationService extends ChangeNotifier {
     }
   }
   
-  /// Stop location tracking
   Future<void> stopTracking() async {
-    await _positionStream?.cancel();
-    await _locationSubscription?.cancel();
+    _positionStream?.cancel();
+    _locationSubscription?.cancel();
     _isTracking = false;
     _currentPosition = null;
     notifyListeners();
   }
   
-  /// Update location in Supabase
   Future<void> _updateLocation(String userId, String role, Position position) async {
     try {
       await _supabase.from('user_locations').upsert({
@@ -86,12 +74,12 @@ class LocationService extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       });
     } catch (e) {
-      _error = 'Failed to update location: ${e.toString()}';
+      print('Error updating location: $e');
+      _error = 'Failed to update location';
       notifyListeners();
     }
   }
   
-  /// Subscribe to location updates for a specific role
   void subscribeToLocationUpdates(String role, Function(List<Map<String, dynamic>>) onUpdate) {
     _locationSubscription?.cancel();
     
@@ -101,32 +89,27 @@ class LocationService extends ChangeNotifier {
       .eq('role', role)
       .listen((data) {
         onUpdate(data);
+      }, onError: (error) {
+        print('Error subscribing to location updates: $error');
       });
   }
   
-  /// Calculate distance between two points
   double calculateDistance(LatLng point1, LatLng point2) {
-    return Geolocator.distanceBetween(
-      point1.latitude,
-      point1.longitude,
-      point2.latitude,
-      point2.longitude,
-    );
+    return point1.distanceTo(point2);
   }
   
-  /// Calculate bearing between two points
   double calculateBearing(LatLng point1, LatLng point2) {
-    return Geolocator.bearingBetween(
-      point1.latitude,
-      point1.longitude,
-      point2.latitude,
-      point2.longitude,
-    );
+    final dLon = point2.longitude - point1.longitude;
+    final y = sin(dLon) * cos(point2.latitude);
+    final x = cos(point1.latitude) * sin(point2.latitude) -
+        sin(point1.latitude) * cos(point2.latitude) * cos(dLon);
+    return atan2(y, x);
   }
   
   @override
   void dispose() {
-    stopTracking();
+    _positionStream?.cancel();
+    _locationSubscription?.cancel();
     super.dispose();
   }
-} 
+}

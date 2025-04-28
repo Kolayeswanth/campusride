@@ -1,59 +1,53 @@
 import 'package:flutter/material.dart';
 
 class TripControls extends StatelessWidget {
-  final String driverId;
+  final bool isTripStarted;
+  final bool isTracking;
+  final Function() onStartTrip;
+  final Function() onStopTrip;
+  final Function() onToggleTracking;
 
   const TripControls({
     Key? key,
-    required this.driverId,
+    required this.isTripStarted,
+    required this.isTracking,
+    required this.onStartTrip,
+    required this.onStopTrip,
+    required this.onToggleTracking,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.all(16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Driver ID: $driverId',
-              style: Theme.of(context).textTheme.titleLarge,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        if (isTripStarted) ...[
+          ElevatedButton.icon(
+            onPressed: onToggleTracking,
+            icon: Icon(isTracking ? Icons.pause : Icons.play_arrow),
+            label: Text(isTracking ? 'Pause' : 'Resume'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isTracking ? Colors.orange : Colors.green,
             ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // Start trip logic will be implemented in the parent widget
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Starting trip for driver: $driverId'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Start Trip'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
-                    ),
-                  ),
-                ),
-              ],
+          ),
+          ElevatedButton.icon(
+            onPressed: onStopTrip,
+            icon: const Icon(Icons.stop),
+            label: const Text('End Trip'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
             ),
-          ],
-        ),
-      ),
+          ),
+        ] else
+          ElevatedButton.icon(
+            onPressed: onStartTrip,
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Start Trip'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).primaryColor,
+            ),
+          ),
+      ],
     );
   }
 } 

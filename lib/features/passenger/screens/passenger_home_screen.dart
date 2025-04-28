@@ -7,6 +7,7 @@ import '../../../core/services/trip_service.dart';
 import '../../../shared/widgets/widgets.dart';
 import '../../../shared/animations/animations.dart';
 import 'bus_tracking_screen.dart';
+import 'bus_search_screen.dart';
 
 /// PassengerHomeScreen is the main screen for passenger users.
 /// It shows nearby buses, allows searching for routes, and displays a map.
@@ -114,6 +115,27 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       setState(() {
         _searchQuery = query.toLowerCase();
       });
+      
+      // If search query is not empty, show a snackbar with instructions
+      if (query.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Searching for "$query"...'),
+            duration: const Duration(seconds: 2),
+            action: SnackBarAction(
+              label: 'View All Results',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => BusSearchScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      }
     });
   }
   
@@ -188,6 +210,74 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                     'Where are you headed today?',
                     style: AppTypography.bodyMedium.copyWith(
                       color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Plan Your Trip Card
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Plan Your Trip',
+                    style: AppTypography.titleMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Enter starting point',
+                      prefixIcon: const Icon(Icons.location_on, color: Colors.green),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Enter destination',
+                      prefixIcon: const Icon(Icons.location_on, color: Colors.red),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Planning your trip... This feature is coming soon!'),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Find Routes'),
                     ),
                   ),
                 ],

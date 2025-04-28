@@ -16,6 +16,7 @@ import 'features/auth/screens/role_selection_screen.dart';
 import 'features/passenger/screens/passenger_home_screen.dart';
 import 'features/driver/screens/driver_home_screen.dart';
 import 'features/driver/screens/driver_dashboard_screen.dart';
+import 'core/services/navigation_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,8 +48,17 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
+        ChangeNotifierProvider<NavigationService>(
+          create: (_) => NavigationService(),
+        ),
         ChangeNotifierProvider<MapService>(
-          create: (_) => MapService(),
+          create: (context) {
+            final mapService = MapService();
+            final navigationService = Provider.of<NavigationService>(context, listen: false);
+            mapService.setNavigationService(navigationService);
+            navigationService.setMapService(mapService);
+            return mapService;
+          },
         ),
         ChangeNotifierProvider<TripService>(
           create: (_) => TripService(),

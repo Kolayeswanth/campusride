@@ -64,4 +64,4 @@ class LocationUtils {
   static double calculateBearing(LatLng from, LatLng to) {
     return const Distance().bearing(from, to);
   }
-} 
+}

@@ -1,4 +1,5 @@
 {
     "files.autoSave": "onFocusChange",
-    "zencoder.enableRepoIndexing": true
+    "zencoder.enableRepoIndexing": true,
+    "CodeGPT.apiKey": "CodeGPT Plus Beta"
 }
