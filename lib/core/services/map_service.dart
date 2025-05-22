@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math';
-import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,17 +7,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'offline_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:provider/provider.dart';
 import 'navigation_service.dart';
+import '../utils/logger_util.dart';
+
+const double kAutoFollowZoom = 17.0; // Consistent zoom level for auto-follow
 
 /// MapService handles MapLibre integration and map-related operations.
 class MapService extends ChangeNotifier {
-  MaplibreMapController? _mapController;
+  MapLibreMapController? _mapController;
   final List<String> _markerIds = [];
   final List<String> _routeIds = [];
-  List<Symbol> _symbols = [];
-  List<Line> _lines = [];
-  latlong2.LatLng _initialPosition = const latlong2.LatLng(0, 0);
+  final List<Symbol> _symbols = [];
+  final List<Line> _lines = [];
+  final latlong2.LatLng _initialPosition = const latlong2.LatLng(0, 0);
   bool _isMapLoaded = false;
   bool _isFollowingUser = true;
   latlong2.LatLng? _currentLocation;
@@ -37,9 +37,10 @@ class MapService extends ChangeNotifier {
   bool _isOfflineMode = false;
   Map<String, dynamic>? _offlineMapData;
   NavigationService? _navigationService;
+  DateTime? _lastMarkerUpdate;
 
   /// Map controller for direct map manipulation
-  MaplibreMapController? get mapController => _mapController;
+  MapLibreMapController? get mapController => _mapController;
 
   /// Initial camera position
   CameraPosition get initialCameraPosition => CameraPosition(
@@ -121,7 +122,7 @@ class MapService extends ChangeNotifier {
   }
 
   /// Set the Map controller when map is created
-  void onMapCreated(MaplibreMapController controller) {
+  void onMapCreated(MapLibreMapController controller) {
     _mapController = controller;
     _isMapLoaded = true;
     notifyListeners();
@@ -234,9 +235,10 @@ class MapService extends ChangeNotifier {
         await _mapController!.animateCamera(
           CameraUpdate.newLatLngZoom(
             latlong2.LatLng(position.latitude, position.longitude).toMaplibreLatLng(),
-            _zoom,
+            kAutoFollowZoom,
           ),
         );
+        _zoom = kAutoFollowZoom; // Keep internal zoom state in sync
       }
 
       notifyListeners();
@@ -455,15 +457,25 @@ class MapService extends ChangeNotifier {
     _locationSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 5, // Update more frequently (every 5 meters)
-        timeLimit: Duration(seconds: 2), // More frequent updates
+        distanceFilter: 10, // Update every 10 meters instead of 5
+        timeLimit: Duration(seconds: 10), // Increased timeout
       ),
-    ).listen((Position position) {
-      _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
-      // Always update the marker for now - we'll handle duplicates differently
-      updateUserLocationMarker(position);
-      notifyListeners();
-    });
+    ).listen(
+      (Position position) {
+        _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+        // Debounce marker updates to reduce UI work
+        if (_lastMarkerUpdate == null || 
+            DateTime.now().difference(_lastMarkerUpdate!) > const Duration(milliseconds: 500)) {
+          updateUserLocationMarker(position);
+          _lastMarkerUpdate = DateTime.now();
+        }
+        notifyListeners();
+      },
+      onError: (error) {
+        _error = 'Location update error: $error';
+        notifyListeners();
+      },
+    );
   }
 
   /// Stop listening to location updates

@@ -1,0 +1,14 @@
+name: Local Assistant
+version: 1.0.0
+schema: v1
+models:
+  - name: deepseek r1
+    provider: ollama
+    model: deepseek-r1
+  - provider: anthropic
+    model: claude-3-7-sonnet-latest
+    apiKey: ${{ secrets.ANTHROPIC_API_KEY }}
+    name: Claude 3.7 Sonnet
+    roles:
+      - chat
+      - edit

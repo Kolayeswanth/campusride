@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import '../utils/logger_util.dart';
 
 class LocationService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
@@ -74,7 +76,7 @@ class LocationService extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       });
     } catch (e) {
-      print('Error updating location: $e');
+      LoggerUtil.error('Error updating location', e);
       _error = 'Failed to update location';
       notifyListeners();
     }
@@ -90,20 +92,34 @@ class LocationService extends ChangeNotifier {
       .listen((data) {
         onUpdate(data);
       }, onError: (error) {
-        print('Error subscribing to location updates: $error');
+        LoggerUtil.error('Error subscribing to location updates', error);
       });
   }
   
   double calculateDistance(LatLng point1, LatLng point2) {
-    return point1.distanceTo(point2);
+    // Calculate distance using the Haversine formula
+    const double earthRadius = 6371000; // in meters
+    final lat1 = point1.latitude * (math.pi / 180);
+    final lat2 = point2.latitude * (math.pi / 180);
+    final dLat = (point2.latitude - point1.latitude) * (math.pi / 180);
+    final dLon = (point2.longitude - point1.longitude) * (math.pi / 180);
+    
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+              math.cos(lat1) * math.cos(lat2) *
+              math.sin(dLon / 2) * math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    
+    return earthRadius * c; // distance in meters
   }
   
   double calculateBearing(LatLng point1, LatLng point2) {
-    final dLon = point2.longitude - point1.longitude;
-    final y = sin(dLon) * cos(point2.latitude);
-    final x = cos(point1.latitude) * sin(point2.latitude) -
-        sin(point1.latitude) * cos(point2.latitude) * cos(dLon);
-    return atan2(y, x);
+    final dLon = (point2.longitude - point1.longitude) * (math.pi / 180);
+    final lat1 = point1.latitude * (math.pi / 180);
+    final lat2 = point2.latitude * (math.pi / 180);
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    return math.atan2(y, x);
   }
   
   @override

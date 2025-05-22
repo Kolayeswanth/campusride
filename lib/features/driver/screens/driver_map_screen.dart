@@ -2,14 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show MaplibreMapController, LatLng, LatLngBounds, CameraUpdate, CameraPosition;
+import 'package:latlong2/latlong.dart' as latlong2;
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/map_service.dart';
 import '../../../core/widgets/buttons/primary_button.dart';
 import '../../../core/utils/location_utils.dart';
-import 'package:maplibre_gl/maplibre_gl.dart' show MaplibreMapController;
-import 'package:latlong2/latlong.dart' as latlong2;
 import '../../../core/widgets/platform_safe_map.dart';
+import '../../../core/constants/map_constants.dart';
+import '../../../core/widgets/village_notification.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; // Import Supabase
+import '../../../core/widgets/crossed_villages_log.dart';
 
 /// LocationService handles real-time location tracking and updates
 class LocationService extends ChangeNotifier {
@@ -158,24 +161,49 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
   String _error = '';
   List<latlong2.LatLng> _routePoints = <latlong2.LatLng>[];
   List<latlong2.LatLng> _completedPoints = <latlong2.LatLng>[];
-  double _completion = 0.0; // 0 to 1
+  double _completion = 0.0;
   Timer? _updateTimer;
-  late LocationService _locationService; // Add LocationService
-  // Define userId and role.  These should come from your authentication system
+  late LocationService _locationService;
   final String userId = 'someUserId';
   final String role = 'driver';
+  Position? _currentPosition;
+  DateTime? _lastMarkerUpdate;
+  latlong2.LatLng? _destinationPosition;
+  MapService? _mapService;
+  Timer? _locationUpdateTimer;
+  latlong2.LatLng? _selectedLocation;
+  bool _isInitialZoom = true;
+  List<Map<String, String>> _villageNotifications = [];
+  OverlayEntry? _notificationOverlay;
+  Set<String> _crossedVillages = {};
+  Timer? _zoomTimer;
+  bool _isZoomingToDestination = false;
+  bool _hasReachedDestination = false;
+  Map<String, DateTime> _villageCrossingTimes = {};
 
   @override
   void initState() {
     super.initState();
-    _locationService = Provider.of<LocationService>(context, listen: false); // Initialize LocationService
+    _locationService = Provider.of<LocationService>(context, listen: false);
     _checkLocationPermissions();
     _loadRouteData();
+    _setupLocationUpdates();
+  }
+
+  void _setupLocationUpdates() {
+    _locationUpdateTimer?.cancel();
+    _locationUpdateTimer = Timer.periodic(
+      MapConstants.locationUpdateInterval,
+      (_) => _updateLocation(),
+    );
   }
 
   @override
   void dispose() {
-    _stopPeriodicUpdates();
+    _locationUpdateTimer?.cancel();
+    _zoomTimer?.cancel();
+    _notificationOverlay?.remove();
+    _crossedVillages.clear();
     super.dispose();
   }
 
@@ -187,7 +215,7 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() {z
+      setState(() {
         _error = e.toString();
         _isLoading = false;
       });
@@ -196,18 +224,15 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
 
   Future<void> _loadRouteData() async {
     final tripService = Provider.of<TripService>(context, listen: false);
-
     try {
-      final routeData = await tripService.getRouteData(widget.routeId);
-      final points = routeData['points'] as List;
-
+      final routeData = await tripService.fetchRouteInfo(widget.routeId);
+      final points = (routeData?['stops'] as List)
+          .map((point) => latlong2.LatLng(point['latitude'] as double, point['longitude'] as double))
+          .toList();
       setState(() {
-        _routePoints = points
-            .map((point) => latlong2.LatLng(point['latitude'] as double, point['longitude'] as double))
-            .toList();
+        _routePoints = points;
         _isLoading = false;
       });
-
       _updateRouteDisplay();
     } catch (e) {
       setState(() {
@@ -311,7 +336,7 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
 
     // Add markers for route start and end
     mapService.addMarker(
-      position: LatLng(_routePoints.first.latitude, _routePoints.first.longitude),
+      position: latlong2.LatLng(_routePoints.first.latitude, _routePoints.first.longitude),
       data: {'id': 'route_start', 'color': Colors.green},
       title: 'Start',
       iconColor: Colors.green,
@@ -353,10 +378,287 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
     }
   }
 
+  Future<void> _updateDriverMarker() async {
+    if (_currentPosition == null || _mapController == null || _mapService == null) return;
+    
+    final currentPoint = latlong2.LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+    
+    await _mapService!.updateMarker(
+      'driver',
+      currentPoint,
+      data: {
+        'id': 'driver',
+        'type': 'bus',
+        'heading': _currentPosition!.heading,
+      },
+    );
+  }
+  
+  Future<void> _updateRouteLine() async {
+    if (_currentPosition == null || _destinationPosition == null) return;
+    
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final routePoints = await tripService.calculateRoute(
+        latlong2.LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+        _destinationPosition!,
+      );
+      
+      if (routePoints.isNotEmpty && _mapService != null) {
+        await _mapService!.addRoute(
+          points: routePoints,
+          data: {
+            'id': 'current_route',
+            'type': 'navigation',
+          },
+        );
+      }
+    } catch (e) {
+      print('Error updating route line: $e');
+    }
+  }
+  
+  Future<void> _updateLocation() async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 10),
+      );
+      
+      if (mounted) {
+        setState(() => _currentPosition = position);
+        
+        if (_lastMarkerUpdate == null || 
+            DateTime.now().difference(_lastMarkerUpdate!) > const Duration(milliseconds: 500)) {
+          await _updateDriverMarker();
+          _lastMarkerUpdate = DateTime.now();
+        }
+        
+        if (_isInitialZoom) {
+          await _zoomToLiveLocation();
+          _isInitialZoom = false;
+        }
+        
+        if (_destinationPosition != null) {
+          await _updateRouteLine();
+          
+          if (!_hasReachedDestination) {
+            final distance = _calculateDistance(
+              latlong2.LatLng(position.latitude, position.longitude),
+              _destinationPosition!,
+            );
+            
+            if (distance <= MapConstants.villageDetectionRadius) {
+              setState(() {
+                _hasReachedDestination = true;
+              });
+            }
+          }
+        }
+
+        await _checkForVillageCrossing(position);
+      }
+    } catch (e) {
+      print('Error updating location: $e');
+    }
+  }
+
+  Future<void> _zoomToLiveLocation() async {
+    if (_currentPosition == null || _mapController == null) return;
+    
+    try {
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          latlong2.LatLng(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+          ).toMaplibreLatLng(),
+          MapConstants.liveLocationZoom,
+        ),
+        duration: MapConstants.cameraAnimationDuration,
+      );
+    } catch (e) {
+      print('Error zooming to live location: $e');
+    }
+  }
+
+  Future<void> _checkForVillageCrossing(Position position) async {
+    if (_destinationPosition == null) return;
+
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final currentPoint = latlong2.LatLng(position.latitude, position.longitude);
+      
+      final villageName = await tripService.getVillageName(currentPoint);
+      
+      if (villageName != null) {
+        final villageCenter = await tripService.getVillageCenter(villageName);
+        if (villageCenter != null) {
+          final distance = _calculateDistance(currentPoint, villageCenter);
+          
+          if (distance <= MapConstants.villageDetectionRadius && 
+              !_crossedVillages.contains(villageName) &&
+              position.speed > 0) {
+            
+            _crossedVillages.add(villageName);
+            _villageCrossingTimes[villageName] = DateTime.now();
+            
+            _showVillageNotification(villageName);
+            
+            await tripService.storeCrossedVillage(
+              villageName,
+              _villageCrossingTimes[villageName]!,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Error checking for village crossing: $e');
+    }
+  }
+
+  void _showVillageNotification(String villageName) {
+    final now = _villageCrossingTimes[villageName] ?? DateTime.now();
+    final time = '${_formatHour(now.hour)}:${_formatMinute(now.minute)} ${now.hour >= 12 ? 'PM' : 'AM'}';
+    
+    setState(() {
+      _villageNotifications.add({
+        'village': villageName,
+        'time': time,
+      });
+    });
+    
+    _showNotificationOverlay(villageName, time);
+  }
+
+  void _showNotificationOverlay(String villageName, String time) {
+    _notificationOverlay?.remove();
+    
+    final overlay = OverlayEntry(
+      builder: (context) => Positioned(
+        top: MediaQuery.of(context).padding.top + 16,
+        left: 16,
+        right: 16,
+        child: VillageNotification(
+          villageName: villageName,
+          time: time,
+          onDismiss: () {
+            _notificationOverlay?.remove();
+            _notificationOverlay = null;
+          },
+        ),
+      ),
+    );
+    
+    Overlay.of(context).insert(overlay);
+    _notificationOverlay = overlay;
+    
+    Future.delayed(MapConstants.notificationDuration, () {
+      overlay.remove();
+      if (_notificationOverlay == overlay) {
+        _notificationOverlay = null;
+      }
+    });
+  }
+
+  String _formatHour(int hour) {
+    final h = hour > 12 ? hour - 12 : hour;
+    return h.toString().padLeft(2, '0');
+  }
+
+  String _formatMinute(int minute) {
+    return minute.toString().padLeft(2, '0');
+  }
+
+  void _onMapCreated(dynamic controller) {
+    if (controller is MaplibreMapController) {
+      _mapController = controller;
+      _mapService = Provider.of<MapService>(context, listen: false);
+      _mapService?.onMapCreated(controller);
+      
+      // Initial zoom to current location
+      if (_currentPosition != null) {
+        _zoomToLiveLocation();
+      }
+    }
+  }
+
+  void _onMapClick(latlong2.LatLng location) async {
+    if (_mapController == null) return;
+
+    setState(() {
+      _selectedLocation = location;
+      _destinationPosition = location;
+      _isZoomingToDestination = true;
+      _hasReachedDestination = false;
+    });
+
+    try {
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          location.toMaplibreLatLng(),
+          MapConstants.destinationZoom,
+        ),
+        duration: MapConstants.cameraAnimationDuration,
+      );
+
+      await _updateRouteLine();
+
+      _zoomTimer?.cancel();
+      _zoomTimer = Timer(const Duration(seconds: 2), () async {
+        if (_currentPosition != null && mounted) {
+          await _zoomToLiveLocation();
+          setState(() {
+            _isZoomingToDestination = false;
+          });
+        }
+      });
+    } catch (e) {
+      print('Error handling map click: $e');
+      setState(() {
+        _isZoomingToDestination = false;
+      });
+    }
+  }
+
+  void _handleIdEntry() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter Driver ID'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircleAvatar(
+              radius: 40,
+              child: Icon(Icons.person, size: 40),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Driver ID: ${widget.busId}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Route: ${widget.routeId}',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mapService = Provider.of<MapService>(context);
-    final locationService = Provider.of<LocationService>(context); // Get the LocationService
+    final locationService = Provider.of<LocationService>(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -364,16 +666,13 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
         title: const Text('Campus Route'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.layers),
-            onPressed: () {
-              // Show map options
-            },
+            icon: const Icon(Icons.person),
+            onPressed: _handleIdEntry,
           ),
         ],
       ),
       body: Stack(
         children: [
-          // Map
           if (_isLoading)
             const Center(child: CircularProgressIndicator())
           else if (_error.isNotEmpty)
@@ -382,59 +681,67 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
             SizedBox(
               height: MediaQuery.of(context).size.height * 0.6,
               child: PlatformSafeMap(
-                initialCameraPosition: latlong2.CameraPosition(
-                  target: latlong2.LatLng(
-                    locationService.currentPosition?.latitude ?? 0.0, // Use LocationService's position
-                    locationService.currentPosition?.longitude ?? 0.0,
+                onMapCreated: _onMapCreated,
+                onMapClick: _onMapClick,
+                initialCameraPosition: CameraPosition(
+                  target: LatLng(
+                    locationService.currentPosition?.latitude ?? 0,
+                    locationService.currentPosition?.longitude ?? 0,
                   ),
-                  zoom: 15.0,
+                  zoom: MapConstants.defaultZoom,
                 ),
                 myLocationEnabled: true,
-                onMapCreated: (controller) {
-                  setState(() {
-                    _mapController = controller;
-                  });
-
-                  if (locationService.currentPosition != null) {
-                    final lat = locationService.currentPosition!.latitude;
-                    final lng = locationService.currentPosition!.longitude;
-                    final position = LatLng(lat, lng);
-                    mapService.moveCameraToPosition(latlong2.LatLng(lat, lng));
-                  }
-
-                  if (_routePoints.isNotEmpty) {
-                    // Calculate bounds manually since fromLatLngs is not available
-                    double minLat = _routePoints[0].latitude;
-                    double maxLat = _routePoints[0].latitude;
-                    double minLng = _routePoints[0].longitude;
-                    double maxLng = _routePoints[0].longitude;
-
-                    for (final point in _routePoints) {
-                      minLat = minLat < point.latitude ? minLat : point.latitude;
-                      maxLat = maxLat > point.latitude ? maxLat : point.latitude;
-                      minLng = minLng < point.longitude ? minLng : point.longitude;
-                      maxLng = maxLng > point.longitude ? maxLng : point.longitude;
-                    }
-
-                    final latlong2Bounds = latlong2.LatLngBounds(
-                      latlong2.LatLng(minLat, minLng),
-                      latlong2.LatLng(maxLat, maxLng),
-                    );
-
-                    controller.animateCamera(
-                      CameraUpdate.newLatLngBounds(latlong2Bounds, top: 50.0, right: 50.0, bottom: 50.0, left: 50.0),
-                    );
-                  }
-                },
               ),
             ),
-          // Bottom panel
+          
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Column(
+              children: [
+                Container(
+                  width: MapConstants.speedIndicatorSize,
+                  height: MapConstants.speedIndicatorSize,
+                  decoration: BoxDecoration(
+                    color: MapConstants.speedIndicatorBackground,
+                    borderRadius: BorderRadius.circular(MapConstants.defaultBorderRadius),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${_currentPosition?.speed?.round() ?? 0}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: MapConstants.locationSymbolSize,
+                  height: MapConstants.locationSymbolSize,
+                  decoration: BoxDecoration(
+                    color: MapConstants.locationSymbolBackground,
+                    borderRadius: BorderRadius.circular(MapConstants.defaultBorderRadius),
+                  ),
+                  child: const Icon(
+                    Icons.my_location,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: Container(
-              padding: const EdgeInsets.all(16),
+              height: MapConstants.bottomPanelHeight,
+              padding: const EdgeInsets.all(16.0),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
@@ -449,7 +756,6 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Route completion indicator
                   LinearProgressIndicator(
                     value: _completion,
                     backgroundColor: Colors.grey[300],
@@ -458,24 +764,9 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Route ${(_completion * 100).toStringAsFixed(0)}% complete',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      PrimaryButton(
-                        text: locationService.isTracking ? 'Stop Tracking' : 'Start Tracking',
-                        icon: locationService.isTracking ? Icons.stop : Icons.play_arrow,
-                        onPressed: _toggleTracking,
-                        backgroundColor: locationService.isTracking
-                            ? Colors.red
-                            : Theme.of(context).colorScheme.primary,
-                        minWidth: 180,
-                      ),
-                    ],
+                  Text(
+                    'Route ${(_completion * 100).toStringAsFixed(0)}% complete',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ],
               ),

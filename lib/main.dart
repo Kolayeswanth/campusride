@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'core/utils/logger_util.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/map_service.dart';
 import 'core/services/trip_service.dart';
@@ -30,12 +32,30 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
   
-  // Initialize Supabase
-  await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL'] ?? 'https://eaxrhqfjiuydbhqxaicv.supabase.co',
-    anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVheHJocWZqaXV5ZGJocXhhaWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NzYzNTQsImV4cCI6MjA1OTI1MjM1NH0.z54KRmsOnm6kgHXnFF8cW69jZmqvoQa4dV8weYVes8w',
-    debug: kDebugMode,
-  );
+  // Check connectivity before initializing Supabase
+  final connectivityResult = await Connectivity().checkConnectivity();
+  if (connectivityResult == ConnectivityResult.none) {
+    // Handle no connectivity - we'll still try to initialize Supabase
+    // but at least we've logged the issue
+    LoggerUtil.warning('No internet connectivity detected. Supabase initialization may fail.');
+  }
+  
+  try {
+    // Initialize Supabase
+    final supabaseUrl = dotenv.env['SUPABASE_URL'] ?? 'https://eaxrhqfjiuydbhqxaicv.supabase.co';
+    final supabaseKey = dotenv.env['SUPABASE_ANON_KEY'] ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVheHJocWZqaXV5ZGJocXhhaWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NzYzNTQsImV4cCI6MjA1OTI1MjM1NH0.z54KRmsOnm6kgHXnFF8cW69jZmqvoQa4dV8weYVes8w';
+    
+    LoggerUtil.info('Initializing Supabase with URL: $supabaseUrl');
+    await Supabase.initialize(
+      url: supabaseUrl,
+      anonKey: supabaseKey,
+      debug: kDebugMode,
+    );
+    LoggerUtil.info('Supabase initialized successfully');
+  } catch (e) {
+    LoggerUtil.error('Error initializing Supabase', e);
+    // We'll continue with the app launch, but authentication will fail
+  }
   
   runApp(const MyApp());
 }

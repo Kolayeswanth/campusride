@@ -25,6 +25,7 @@ import '../widgets/speed_tracker.dart';
 import '../widgets/village_crossing_log.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../../core/constants/map_constants.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({Key? key}) : super(key: key);
@@ -85,13 +86,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   bool _isSearchingStartLocation = false;
 
   // Add new state variables for speed tracking
-  double _currentSpeed = 0.0;
-  Position? _lastPosition;
-  DateTime? _lastPositionTime;
-  Timer? _speedUpdateTimer;
-  bool _isSpeedVisible = true;  // Add this new state variable
-  
-  // Add new state variable for route deviation tracking
   double _lastDeviationCheckDistance = 0.0;
   static const double _deviationThreshold = 50.0; // meters
   static const double _deviationCheckInterval = 100.0; // meters
@@ -146,28 +140,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       setState(() {
         _isManualControl = false;
       });
-    }
-  }
-
-  // Add method to calculate speed
-  void _updateSpeed(Position newPosition, Position? lastPosition, DateTime? lastPositionTime) {
-    if (lastPosition != null && lastPositionTime != null) {
-      final distance = Geolocator.distanceBetween(
-        lastPosition.latitude,
-        lastPosition.longitude,
-        newPosition.latitude,
-        newPosition.longitude,
-      );
-      
-      final timeDiff = DateTime.now().difference(lastPositionTime).inSeconds;
-      if (timeDiff > 0) {
-        final speedInMetersPerSecond = distance / timeDiff;
-        final speedInKmPerHour = (speedInMetersPerSecond * 3.6);
-        
-        setState(() {
-          _currentSpeed = speedInKmPerHour;
-        });
-      }
     }
   }
 
@@ -278,9 +250,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     });
 
     // Start speed updates
-    _speedUpdateTimer = Timer.periodic(
+    _locationUpdateTimer = Timer.periodic(
       const Duration(seconds: 1),
-      (_) => _updateSpeedIfPossible(),
+      (_) => _updateLocation(),
     );
   }
 
@@ -292,7 +264,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _stopLocationUpdates();
     _locationUpdateTimer?.cancel();
     _animationTimer?.cancel();
-    _speedUpdateTimer?.cancel();
     
     if (_mapController != null) {
       _mapController!.onSymbolTapped.remove(_onSymbolTapped);
@@ -1050,6 +1021,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
     // Update map zoom after setting destination
     await _updateMapZoom();
+
+    // After showing the route, zoom in to the live location at 100m (zoom level 18)
+    if (_currentPosition != null && _mapController != null) {
+      Future.delayed(const Duration(seconds: 2), () async {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+            MapConstants.liveLocationZoom,
+          ),
+        );
+      });
+    }
   }
 
   Future<void> _clearExistingRoute() async {
@@ -1467,9 +1450,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _isTripStarted = true;
       _hasReachedDestination = false;
       _completedPoints = [];
-      _currentSpeed = 0.0;
-      _passedVillages.clear(); // Reset passed villages
-      _villageCrossings.clear(); // Reset village crossings log
       _lastVillageCheckDistance = 0.0;
       _showVillageCrossingLog = false;
     });
@@ -1507,13 +1487,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       );
       
       if (mounted) {
-        // Update speed
-        _updateSpeed(position, _lastPosition, _lastPositionTime);
-        
         setState(() {
           _currentPosition = position;
-          _lastPosition = position;
-          _lastPositionTime = DateTime.now();
         });
         
         // Update the bus icon position with smooth animation
@@ -1586,7 +1561,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     
     // Cancel all timers
     _locationUpdateTimer?.cancel();
-    _speedUpdateTimer?.cancel();
     _animationTimer?.cancel();
     
     // Remove all map elements
@@ -1626,7 +1600,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _isTripStarted = false;
       _hasReachedDestination = false;
       _completion = 0.0;
-      _currentSpeed = 0.0;
       _routePoints.clear();
       _completedPoints.clear();
       _destinationPosition = null;
@@ -1739,17 +1712,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   void _stopTrip() async {
     // Cancel animation timer if running
     _animationTimer?.cancel();
-    _speedUpdateTimer?.cancel();
-    _villageCheckTimer?.cancel();
     
     // Reset trip state
     setState(() {
       _isTripStarted = false;
       _hasReachedDestination = false;
       _completion = 0.0;
-      _currentSpeed = 0.0;
-      _passedVillages.clear();
-      _villageCrossings.clear(); // Reset village crossings log
       _lastVillageCheckDistance = 0.0;
       _showVillageCrossingLog = false;
     });
@@ -2089,15 +2057,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       
       setState(() {
         _distanceRemaining = '${(distance / 1000).toStringAsFixed(1)} km';
-        
-        if (_currentSpeed > 0) {
-          final timeInHours = distance / (_currentSpeed * 1000);
-          final hours = timeInHours.floor();
-          final minutes = ((timeInHours - hours) * 60).round();
-          _timeToDestination = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
-        } else {
-          _timeToDestination = '--:--';
-        }
+        _timeToDestination = '--:--'; // Speed removed, so ETA is not available
       });
     }
   }
@@ -2174,102 +2134,87 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _lastVillageCheckDistance = distanceTraveled;
 
     try {
-      final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentPosition.latitude}&lon=${currentPosition.longitude}&zoom=14&addressdetails=1'
+      // Use the TripService to get the village name and center
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final latLng = latlong2.LatLng(currentPosition.latitude, currentPosition.longitude);
+      final villageName = await tripService.getVillageName(latLng);
+      if (villageName == null) return;
+      final villageCenter = await tripService.getVillageCenter(villageName);
+      if (villageCenter == null) return;
+      final distance = const latlong2.Distance().distance(latLng, villageCenter);
+      if (distance > MapConstants.villageDetectionRadius) return;
+      if (_passedVillages.contains(villageName)) return;
+
+      // Add to passed villages set
+      _passedVillages.add(villageName);
+      
+      // Create a village crossing record
+      final now = DateTime.now();
+      final crossing = VillageCrossing(
+        name: villageName,
+        timestamp: now,
+        latitude: currentPosition.latitude,
+        longitude: currentPosition.longitude,
       );
       
-      final response = await http.get(
-        url,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'CampusRide/1.0',
-        }
-      );
+      // Add to the list of crossings
+      setState(() {
+        _villageCrossings.add(crossing);
+      });
       
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final address = data['address'] as Map<String, dynamic>;
-        
-        // Get village/town name from address components
-        final villageName = address['village'] ?? 
-                           address['town'] ?? 
-                           address['suburb'] ?? 
-                           address['hamlet'] ??
-                           address['neighbourhood'];
-        
-        if (villageName != null && !_passedVillages.contains(villageName)) {
-          // Add to passed villages set
-          _passedVillages.add(villageName);
-          
-          // Create a village crossing record
-          final now = DateTime.now();
-          final crossing = VillageCrossing(
-            name: villageName,
-            timestamp: now,
-            latitude: currentPosition.latitude,
-            longitude: currentPosition.longitude,
-          );
-          
-          // Add to the list of crossings
-          setState(() {
-            _villageCrossings.add(crossing);
-          });
-          
-          // Save to trip data if needed
-          _saveCrossingToTripData(crossing);
-          
-          // Show notification
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(Icons.location_city, color: Colors.green),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '🏁 You crossed $villageName',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          Text(
-                            'at ${crossing.formattedTime}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        ],
+      // Save to trip data if needed
+      _saveCrossingToTripData(crossing);
+      
+      // Show notification
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.location_city, color: Colors.green),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '🏁 You crossed $villageName',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
                       ),
-                    ),
-                  ],
+                      Text(
+                        'at ${crossing.formattedTime}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                backgroundColor: Colors.white,
-                duration: const Duration(seconds: 4),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                margin: const EdgeInsets.all(10),
-                action: SnackBarAction(
-                  label: 'VIEW LOG',
-                  textColor: Theme.of(context).primaryColor,
-                  onPressed: () {
-                    setState(() {
-                      _showVillageCrossingLog = true;
-                    });
-                  },
-                ),
-              ),
-            );
-          }
-        }
+              ],
+            ),
+            backgroundColor: Colors.white,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(10),
+            action: SnackBarAction(
+              label: 'VIEW LOG',
+              textColor: Theme.of(context).primaryColor,
+              onPressed: () {
+                setState(() {
+                  _showVillageCrossingLog = true;
+                });
+              },
+            ),
+          ),
+        );
       }
     } catch (e) {
       print('Error checking village crossing: $e');
@@ -2290,15 +2235,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     } catch (e) {
       print('Error saving village crossing: $e');
     }
-  }
-
-  // Add new method to update speed if possible
-  void _updateSpeedIfPossible() {
-    if (_currentPosition != null && _lastPosition != null && _lastPositionTime != null) {
-      _updateSpeed(_currentPosition!, _lastPosition, _lastPositionTime);
-    }
-    _lastPosition = _currentPosition;
-    _lastPositionTime = DateTime.now();
   }
 
   @override
@@ -2378,48 +2314,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               child: _buildSearchBars(),
             ),
             
-            // Speed display in bottom-left corner
-            Positioned(
-              left: 16,
-              bottom: 200,
-              child: Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      spreadRadius: 2,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${_currentSpeed.toStringAsFixed(1)}',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    const Text(
-                      'km/h',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        
             // Location button
         Positioned(
           bottom: 200,
@@ -2551,65 +2445,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           ],
                           
                   const SizedBox(height: 8),
-                  if (_isTripStarted) ...[
-                    Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                setState(() => _isTracking = !_isTracking);
-                                if (_isTracking) _startLocationUpdates();
-                                else _stopLocationUpdates();
-                              },
-                              icon: Icon(_isTracking ? Icons.pause : Icons.play_arrow),
-                              label: Text(_isTracking ? 'Pause' : 'Resume'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _isTracking ? Colors.orange : Colors.green,
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: _stopTrip,
-                              icon: const Icon(Icons.stop),
-                              label: const Text('End Trip'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                              ),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      // Show Enter ID dialog or logic
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Enter Driver ID'),
+                          content: TextField(
+                            decoration: const InputDecoration(hintText: 'Enter your ID'),
+                            onSubmitted: (value) {
+                              // Save the ID or handle as needed
+                              Navigator.pop(context);
+                            },
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        // Village crossing log button
-                        if (_villageCrossings.isNotEmpty)
-                          TextButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _showVillageCrossingLog = !_showVillageCrossingLog;
-                              });
-                            },
-                            icon: const Icon(Icons.location_city),
-                            label: Text(
-                              _showVillageCrossingLog 
-                                ? 'Hide Village Log' 
-                                : 'Show Villages (${_villageCrossings.length})',
-                            ),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.blue,
-                            ),
-                          ),
-                      ],
+                      );
+                    },
+                    icon: const Icon(Icons.person),
+                    label: const Text('Enter ID'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).primaryColor,
                     ),
-                  ] else ...[
-                    ElevatedButton.icon(
-                      onPressed: _startTrip,
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Start Trip'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).primaryColor,
-                      ),
-                    ),
-                  ],
+                  ),
                 ],
               ),
             ),
@@ -2884,91 +2748,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 },
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-// Add this new widget class before the DriverDashboardScreen class
-class SpeedTracker extends StatelessWidget {
-  final double speed;
-  final String timeToDestination;
-  final String distanceRemaining;
-
-  const SpeedTracker({
-    Key? key,
-    required this.speed,
-    required this.timeToDestination,
-    required this.distanceRemaining,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 100,
-      height: 100,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Speed display
-          Text(
-            '${speed.toStringAsFixed(1)}',
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.blue,
-            ),
-          ),
-          const Text(
-            'km/h',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey,
-            ),
-          ),
-          const SizedBox(height: 4),
-          // Time to destination
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.access_time, size: 10, color: Colors.grey),
-              const SizedBox(width: 2),
-              Text(
-                timeToDestination,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          // Distance remaining
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.directions_car, size: 10, color: Colors.grey),
-              const SizedBox(width: 2),
-              Text(
-                distanceRemaining,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -151,43 +152,59 @@ class AuthService extends ChangeNotifier {
     try {
       print('Updating user role to: $role for user ID: ${_currentUser!.id}');
       
-      // First check if the user_profiles table exists and has the necessary row
-      final userExists = await _supabase
-          .from('user_profiles')
-          .select('id')
-          .eq('id', _currentUser!.id)
-          .maybeSingle();
-      
-      if (userExists == null) {
-        print('User profile does not exist, creating a new one');
-        // Create a new profile if it doesn't exist
-        await _supabase
+      // Check internet connectivity first
+      try {
+        // First check if the user_profiles table exists and has the necessary row
+        final userExists = await _supabase
             .from('user_profiles')
-            .insert({
-              'id': _currentUser!.id,
-              'email': _currentUser!.email,
-              'role': role,
-              'created_at': DateTime.now().toIso8601String(),
-              'updated_at': DateTime.now().toIso8601String(),
-            });
-      } else {
-        print('User profile exists, updating role');
-        // Update existing profile
-        await _supabase
-            .from('user_profiles')
-            .update({
-              'role': role,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', _currentUser!.id);
+            .select('id')
+            .eq('id', _currentUser!.id)
+            .maybeSingle();
+        
+        if (userExists == null) {
+          print('User profile does not exist, creating a new one');
+          // Create a new profile if it doesn't exist
+          await _supabase
+              .from('user_profiles')
+              .insert({
+                'id': _currentUser!.id,
+                'email': _currentUser!.email,
+                'role': role,
+                'created_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              });
+        } else {
+          print('User profile exists, updating role');
+          // Update existing profile
+          await _supabase
+              .from('user_profiles')
+              .update({
+                'role': role,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', _currentUser!.id);
+        }
+        
+        _userRole = role;
+        _error = null;
+        print('User role updated successfully to: $role');
+      } on SocketException catch (e) {
+        print('Network error: $e');
+        _error = 'Network error: Please check your internet connection and try again.';
+      } on AuthException catch (e) {
+        print('Auth error: $e');
+        _error = 'Authentication error: ${e.message}';
       }
-      
-      _userRole = role;
-      _error = null;
-      print('User role updated successfully to: $role');
     } catch (e) {
       print('Error updating user role: $e');
       _error = 'Failed to update user role: $e';
+      
+      // More detailed error logging
+      if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
+        _error = 'Network error: Unable to connect to the server. Please check your internet connection.';
+      } else if (e.toString().contains('AuthException')) {
+        _error = 'Authentication error: Your session may have expired. Please sign in again.';
+      }
     } finally {
       _isLoading = false;
       notifyListeners();

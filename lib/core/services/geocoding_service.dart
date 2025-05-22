@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../utils/logger_util.dart';
+import '../constants/map_constants.dart';
 
 class GeocodingService extends ChangeNotifier {
   final String _apiKey;
   final Map<String, String> _crossedVillages = {};
   final Set<String> _notifiedVillages = {};
+  final Map<String, latlong2.LatLng> _villageCenters = {};
   
   // Getter for crossed villages
   Map<String, String> get crossedVillages => Map.unmodifiable(_crossedVillages);
@@ -16,7 +19,7 @@ class GeocodingService extends ChangeNotifier {
   GeocodingService() : _apiKey = dotenv.env['MAPTILER_API_KEY'] ?? 'X2gh37rGOvC2FnGm7GYy';
   
   /// Perform reverse geocoding to get location name from coordinates
-  Future<Map<String, dynamic>?> reverseGeocode(LatLng location) async {
+  Future<Map<String, dynamic>?> reverseGeocode(latlong2.LatLng location) async {
     try {
       final url = 'https://api.maptiler.com/geocoding/${location.longitude},${location.latitude}.json?key=$_apiKey';
       
@@ -26,11 +29,12 @@ class GeocodingService extends ChangeNotifier {
         final data = json.decode(response.body);
         return data;
       } else {
-        print('Reverse geocoding failed: ${response.statusCode} - ${response.body}');
+        LoggerUtil.error('Reverse geocoding failed', 
+            'Status: ${response.statusCode}, Body: ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error during reverse geocoding: $e');
+      LoggerUtil.error('Error during reverse geocoding', e);
       return null;
     }
   }
@@ -68,7 +72,7 @@ class GeocodingService extends ChangeNotifier {
   }
   
   /// Check if the user has crossed a new village/city
-  Future<String?> checkCrossedVillage(LatLng location) async {
+  Future<String?> checkCrossedVillage(latlong2.LatLng location) async {
     try {
       final geocodingResult = await reverseGeocode(location);
       if (geocodingResult == null) return null;
@@ -112,5 +116,73 @@ class GeocodingService extends ChangeNotifier {
   /// Format minute to ensure two digits
   String _formatMinute(int minute) {
     return minute.toString().padLeft(2, '0');
+  }
+
+  /// Get the village name for a given location
+  Future<String?> getVillageName(latlong2.LatLng location) async {
+    try {
+      // TODO: Implement actual geocoding service call
+      // For now, return a mock village name based on coordinates
+      final villageName = _getMockVillageName(location);
+      return villageName;
+    } catch (e) {
+      print('Error getting village name: $e');
+      return null;
+    }
+  }
+
+  /// Get the center coordinates of a village
+  Future<latlong2.LatLng> getVillageCenter(String villageName) async {
+    if (_villageCenters.containsKey(villageName)) {
+      return _villageCenters[villageName]!;
+    }
+
+    try {
+      // TODO: Implement actual geocoding service call
+      // For now, return mock coordinates
+      final center = _getMockVillageCenter(villageName);
+      _villageCenters[villageName] = center;
+      return center;
+    } catch (e) {
+      print('Error getting village center: $e');
+      // Return a default center if the actual one can't be determined
+      return latlong2.LatLng(0, 0);
+    }
+  }
+
+  // Mock methods for testing
+  String? _getMockVillageName(latlong2.LatLng location) {
+    // This is a mock implementation
+    // In a real app, you would use a geocoding service
+    final villages = [
+      {'name': 'Village A', 'lat': 12.9716, 'lng': 77.5946},
+      {'name': 'Village B', 'lat': 12.9784, 'lng': 77.6408},
+      {'name': 'Village C', 'lat': 12.9850, 'lng': 77.6067},
+    ];
+
+    for (final village in villages) {
+      final distance = const latlong2.Distance().distance(
+        location,
+        latlong2.LatLng(village['lat'] as double, village['lng'] as double),
+      );
+
+      if (distance <= MapConstants.villageDetectionRadius) {
+        return village['name'] as String;
+      }
+    }
+
+    return null;
+  }
+
+  latlong2.LatLng _getMockVillageCenter(String villageName) {
+    // This is a mock implementation
+    // In a real app, you would use a geocoding service
+    final villages = {
+      'Village A': latlong2.LatLng(12.9716, 77.5946),
+      'Village B': latlong2.LatLng(12.9784, 77.6408),
+      'Village C': latlong2.LatLng(12.9850, 77.6067),
+    };
+
+    return villages[villageName] ?? latlong2.LatLng(0, 0);
   }
 }

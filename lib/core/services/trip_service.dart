@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'geocoding_service.dart';
+import '../constants/map_constants.dart';
 
 class BusRoute {
   String id;
@@ -56,6 +57,7 @@ class TripService with ChangeNotifier {
   bool _showVillageNotification = false;
   String? _villageNotificationMessage;
   Timer? _notificationTimer;
+  final Set<String> _crossedVillages = {}; // Track crossed villages to prevent duplicates
 
   List<BusRoute> get routes => _routes;
   BusRoute? get selectedRoute => _selectedRoute;
@@ -128,29 +130,54 @@ class TripService with ChangeNotifier {
   Future<void> _checkForCrossedVillage() async {
     if (_currentLocation == null) return;
     
-    final villageName = await _geocodingService.checkCrossedVillage(
-      latlong2.LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
-    );
-    
-    if (villageName != null && villageName != _lastCrossedVillage) {
-      _lastCrossedVillage = villageName;
+    try {
+      final villageName = await _geocodingService.checkCrossedVillage(
+        latlong2.LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
+      );
       
-      // Get the current time for the notification
-      final now = DateTime.now();
-      final formattedTime = '${_formatHour(now.hour)}:${_formatMinute(now.minute)} ${now.hour >= 12 ? 'PM' : 'AM'}';
-      
-      // Show notification
-      _showVillageNotification = true;
-      _villageNotificationMessage = '🏁 You crossed $villageName at $formattedTime.';
-      
-      // Auto-hide notification after 5 seconds
-      _notificationTimer?.cancel();
-      _notificationTimer = Timer(const Duration(seconds: 5), () {
-        _showVillageNotification = false;
-        notifyListeners();
-      });
-      
-      notifyListeners();
+      if (villageName != null && 
+          villageName != _lastCrossedVillage && 
+          !_crossedVillages.contains(villageName)) {
+        
+        // Get the village center
+        final villageCenter = await _geocodingService.getVillageCenter(villageName);
+        if (villageCenter == null) return;
+        
+        // Calculate distance to village center
+        final distance = const latlong2.Distance().distance(
+          _currentLocation!,
+          villageCenter,
+        );
+        
+        // Only show notification if we're actually crossing the village
+        // (i.e., we're within the detection radius)
+        if (distance <= MapConstants.villageDetectionRadius) {
+          _lastCrossedVillage = villageName;
+          _crossedVillages.add(villageName);
+          
+          // Get the current time for the notification
+          final now = DateTime.now();
+          final formattedTime = '${_formatHour(now.hour)}:${_formatMinute(now.minute)} ${now.hour >= 12 ? 'PM' : 'AM'}';
+          
+          // Show notification
+          _showVillageNotification = true;
+          _villageNotificationMessage = '🏁 You crossed $villageName at $formattedTime.';
+          
+          // Store the crossed village in the database
+          await _storeCrossedVillage(villageName, now);
+          
+          // Auto-hide notification after 5 seconds
+          _notificationTimer?.cancel();
+          _notificationTimer = Timer(MapConstants.notificationDuration, () {
+            _showVillageNotification = false;
+            notifyListeners();
+          });
+          
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      print('Error checking for crossed village: $e');
     }
   }
   
@@ -346,5 +373,127 @@ class TripService with ChangeNotifier {
       notifyListeners();
       return [];
     }
+  }
+
+  /// Update bus location in the database
+  Future<void> updateBusLocation(
+    String busId,
+    double latitude,
+    double longitude,
+    double? heading,
+    double? speed,
+  ) async {
+    try {
+      await _supabase.from('trip_locations').insert({
+        'trip_id': busId,
+        'latitude': latitude,
+        'longitude': longitude,
+        'heading': heading,
+        'speed': speed,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      _error = 'Failed to update bus location: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> _storeCrossedVillage(String villageName, DateTime timestamp) async {
+    try {
+      await _supabase.from('crossed_villages').insert({
+        'trip_id': 'your_trip_id', // Replace with actual trip ID
+        'village_name': villageName,
+        'timestamp': timestamp.toIso8601String(),
+        'latitude': _currentLocation!.latitude,
+        'longitude': _currentLocation!.longitude,
+      });
+    } catch (e) {
+      print('Failed to store crossed village: $e');
+    }
+  }
+
+  /// Get the village name for a given location
+  Future<String?> getVillageName(latlong2.LatLng location) async {
+    try {
+      // Use the GeocodingService to get the village name
+      final villageName = await _geocodingService.getVillageName(location);
+      
+      if (villageName != null) {
+        // Get the village center
+        final villageCenter = await _geocodingService.getVillageCenter(villageName);
+        if (villageCenter == null) return null;
+        
+        // Calculate distance to village center
+        final distance = const latlong2.Distance().distance(
+          location,
+          villageCenter,
+        );
+        
+        // Only return village name if we're within the detection radius
+        if (distance <= MapConstants.villageDetectionRadius) {
+          return villageName;
+        }
+      }
+      
+      return null;
+    } catch (e) {
+      print('Error getting village name: $e');
+      return null;
+    }
+  }
+
+  /// Get all crossed villages for a trip
+  Future<List<Map<String, dynamic>>> getCrossedVillages(String tripId) async {
+    try {
+      final response = await _supabase
+          .from('crossed_villages')
+          .select('*')
+          .eq('trip_id', tripId)
+          .order('timestamp', ascending: false);
+      
+      return response.map<Map<String, dynamic>>((village) {
+        return {
+          'village_name': village['village_name'],
+          'timestamp': DateTime.parse(village['timestamp']),
+          'latitude': village['latitude'],
+          'longitude': village['longitude'],
+        };
+      }).toList();
+    } catch (e) {
+      print('Failed to get crossed villages: $e');
+      return [];
+    }
+  }
+
+  /// Get the village center coordinates
+  Future<latlong2.LatLng?> getVillageCenter(String villageName) async {
+    try {
+      return await _geocodingService.getVillageCenter(villageName);
+    } catch (e) {
+      print('Error getting village center: $e');
+      return null;
+    }
+  }
+
+  /// Store crossed village information
+  Future<void> storeCrossedVillage(String villageName, DateTime timestamp) async {
+    try {
+      await _supabase.from('crossed_villages').insert({
+        'trip_id': 'your_trip_id', // Replace with actual trip ID
+        'village_name': villageName,
+        'timestamp': timestamp.toIso8601String(),
+        'latitude': _currentLocation!.latitude,
+        'longitude': _currentLocation!.longitude,
+      });
+    } catch (e) {
+      print('Failed to store crossed village: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _crossedVillages.clear();
+    _notificationTimer?.cancel();
+    super.dispose();
   }
 }

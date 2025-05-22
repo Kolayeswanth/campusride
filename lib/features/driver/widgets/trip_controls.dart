@@ -19,34 +19,16 @@ class TripControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        if (isTripStarted) ...[
-          ElevatedButton.icon(
-            onPressed: onToggleTracking,
-            icon: Icon(isTracking ? Icons.pause : Icons.play_arrow),
-            label: Text(isTracking ? 'Pause' : 'Resume'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isTracking ? Colors.orange : Colors.green,
-            ),
+        ElevatedButton.icon(
+          onPressed: onStartTrip,
+          icon: const Icon(Icons.person),
+          label: const Text('Enter ID'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).primaryColor,
           ),
-          ElevatedButton.icon(
-            onPressed: onStopTrip,
-            icon: const Icon(Icons.stop),
-            label: const Text('End Trip'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-          ),
-        ] else
-          ElevatedButton.icon(
-            onPressed: onStartTrip,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Start Trip'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).primaryColor,
-            ),
-          ),
+        ),
       ],
     );
   }

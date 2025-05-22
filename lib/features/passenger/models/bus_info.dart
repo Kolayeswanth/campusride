@@ -1,5 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 
 class BusInfo {
   final String busId;
@@ -26,21 +25,23 @@ class BusInfo {
     required this.lastUpdated,
   });
 
-  factory BusInfo.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-    GeoPoint geoPoint = data['currentLocation'] as GeoPoint;
-    
+  factory BusInfo.fromJson(Map<String, dynamic> json) {
     return BusInfo(
-      busId: doc.id,
-      driverId: data['driverId'] ?? '',
-      currentLocation: LatLng(geoPoint.latitude, geoPoint.longitude),
-      destination: data['destination'] ?? '',
-      estimatedTime: data['estimatedTime'] ?? '',
-      estimatedDistance: data['estimatedDistance'] ?? '',
-      isActive: data['isActive'] ?? false,
-      routeNumber: data['routeNumber'] ?? '',
-      availableSeats: data['availableSeats'] ?? 0,
-      lastUpdated: (data['lastUpdated'] as Timestamp).toDate(),
+      busId: json['id'] ?? json['bus_id'] ?? '',
+      driverId: json['driver_id'] ?? '',
+      currentLocation: LatLng(
+        json['latitude'] ?? 0.0, 
+        json['longitude'] ?? 0.0
+      ),
+      destination: json['destination'] ?? '',
+      estimatedTime: json['estimated_time'] ?? '',
+      estimatedDistance: json['estimated_distance'] ?? '',
+      isActive: json['is_active'] ?? false,
+      routeNumber: json['route_number'] ?? '',
+      availableSeats: json['available_seats'] ?? 0,
+      lastUpdated: json['last_updated'] != null 
+        ? DateTime.parse(json['last_updated']) 
+        : DateTime.now(),
     );
   }
 } 

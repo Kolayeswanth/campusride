@@ -5,67 +5,21 @@ class FlutterLocalNotificationsLinuxPlugin {
   static void registerWith() {
     // Do nothing
   }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
+  
+  // Additional methods that might be needed
+  Future<void> initialize() async {
     // Do nothing
   }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
+  
+  Future<void> show(int id, String title, String body, dynamic notificationDetails) async {
     // Do nothing
   }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
+  
+  Future<void> cancel(int id) async {
     // Do nothing
   }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
-    // Do nothing
-  }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
-    // Do nothing
-  }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
-    // Do nothing
-  }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
-    // Do nothing
-  }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
-    // Do nothing
-  }
-}// This is a dummy implementation to satisfy the dependency
-// It doesn't actually do anything
-
-class FlutterLocalNotificationsLinuxPlugin {
-  static void registerWith() {
+  
+  Future<void> cancelAll() async {
     // Do nothing
   }
 }
