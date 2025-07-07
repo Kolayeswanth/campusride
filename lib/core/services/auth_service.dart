@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -17,6 +18,7 @@ class AuthService extends ChangeNotifier {
   String? _userRole;
   bool _isLoading = true;
   String? _error;
+  String? _successMessage;
   
   StreamSubscription? _authSubscription;
   
@@ -25,6 +27,18 @@ class AuthService extends ChangeNotifier {
     _initGoogleSignIn();
     _initAuthState();
     _initPrefs();
+  }
+
+  /// Initialize GoogleSignIn with appropriate configuration
+  void _initGoogleSignIn() {
+    if (kIsWeb) {
+      _googleSignIn = GoogleSignIn(
+        clientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
+        scopes: ['email', 'profile'],
+      );
+    } else {
+      _googleSignIn = GoogleSignIn();
+    }
   }
   
   /// Initialize Google Sign In
@@ -50,6 +64,9 @@ class AuthService extends ChangeNotifier {
   
   /// Error message if any
   String? get error => _error;
+  
+  /// Success message if any
+  String? get successMessage => _successMessage;
   
   /// Returns true if user is authenticated
   bool get isAuthenticated => _currentUser != null;
@@ -273,7 +290,6 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     
     try {
-      // First step: Sign up the user
       print('Attempting to sign up user with email: $email');
       final response = await _supabase.auth.signUp(
         email: email,
@@ -284,7 +300,6 @@ class AuthService extends ChangeNotifier {
         },
       );
       
-      // Check if sign up was successful and user object was returned
       if (response.user != null) {
         print('User signed up successfully, user ID: ${response.user!.id}');
         
@@ -310,20 +325,18 @@ class AuthService extends ChangeNotifier {
           _isLoading = false;
           notifyListeners();
         }
+
       } else {
         print('Sign up response did not contain user object');
-        _error = 'Registration failed: No user returned from sign up';
-        _isLoading = false;
-        notifyListeners();
+        _error = 'Registration failed: Please try again';
       }
     } on AuthException catch (e) {
       print('Auth Exception during registration: ${e.message}');
       _error = e.message;
-      _isLoading = false;
-      notifyListeners();
     } catch (e) {
       print('Unexpected error during registration: $e');
-      _error = 'An unexpected error occurred: $e';
+      _error = 'An unexpected error occurred. Please try again.';
+    } finally {
       _isLoading = false;
       notifyListeners();
     }
@@ -509,4 +522,4 @@ class AuthService extends ChangeNotifier {
     _authSubscription?.cancel();
     super.dispose();
   }
-} 
+}

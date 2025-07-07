@@ -87,6 +87,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const RoleSelectionScreen(),
         );
       }
+
     }
   }
 
@@ -458,3 +459,4 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
+
