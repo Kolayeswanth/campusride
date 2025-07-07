@@ -1,698 +1,377 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart';
+import 'dart:math' show Random, sin, cos, pi;
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb, ChangeNotifier;
 import 'package:flutter/material.dart';
-import '../models/bus.dart';
-import '../models/route.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:latlong2/latlong.dart' as latlong2;
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'geocoding_service.dart';
+import '../constants/map_constants.dart';
 
-/// Trip model to represent a driver's trip
-class Trip {
-  final String id;
-  final String busId;
-  final String routeName;
-  final DateTime startTime;
-  final DateTime? endTime;
-  final bool isActive;
-  
-  Trip({
+class BusRoute {
+  String id;
+  String name;
+  latlong2.LatLng startLocation;
+  latlong2.LatLng endLocation;
+
+  BusRoute({
     required this.id,
-    required this.busId,
-    required this.routeName,
-    required this.startTime,
-    this.endTime,
-    required this.isActive,
+    required this.name,
+    required this.startLocation,
+    required this.endLocation,
   });
-  
-  factory Trip.fromJson(Map<String, dynamic> json) {
-    return Trip(
-      id: json['id'] as String,
-      busId: json['bus_id'] as String,
-      routeName: json['route_name'] as String,
-      startTime: DateTime.parse(json['start_time'] as String),
-      endTime: json['end_time'] != null 
-          ? DateTime.parse(json['end_time'] as String) 
-          : null,
-      isActive: json['is_active'] as bool,
+
+  factory BusRoute.fromJson(Map<String, dynamic> json) {
+    return BusRoute(
+      id: json['id'],
+      name: json['name'],
+      startLocation: latlong2.LatLng(
+        json['start_latitude'],
+        json['start_longitude'],
+      ),
+      endLocation: latlong2.LatLng(
+        json['end_latitude'],
+        json['end_longitude'],
+      ),
     );
-  }
-  
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'bus_id': busId,
-      'route_name': routeName,
-      'start_time': startTime.toIso8601String(),
-      'end_time': endTime?.toIso8601String(),
-      'is_active': isActive,
-    };
-  }
-  
-  /// Get the duration of the trip as a formatted string
-  String get duration {
-    final endDateTime = endTime ?? DateTime.now();
-    final difference = endDateTime.difference(startTime);
-    
-    final hours = difference.inHours;
-    final minutes = difference.inMinutes.remainder(60);
-    final seconds = difference.inSeconds.remainder(60);
-    
-    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-  
-  /// Get a formatted start time (e.g. "10:30 AM")
-  String get formattedStartTime {
-    return DateFormat('h:mm a').format(startTime);
-  }
-  
-  /// Get a formatted date (e.g. "Jun 15, 2023")
-  String get formattedDate {
-    return DateFormat('MMM d, yyyy').format(startTime);
   }
 }
 
-/// TripService handles trip management for drivers
-class TripService extends ChangeNotifier {
+class TripService with ChangeNotifier {
   final _supabase = Supabase.instance.client;
-  
-  Trip? _currentTrip;
-  List<Trip> _tripHistory = [];
-  String? _error;
-  bool _isLoading = false;
-  Timer? _tripTimer;
-  String _tripDuration = '00:00:00';
-  
-  List<Bus> _activeBuses = [];
+  final GeocodingService _geocodingService = GeocodingService();
   List<BusRoute> _routes = [];
-  
-  /// Current active trip if any
-  Trip? get currentTrip => _currentTrip;
-  
-  /// List of past trips
-  List<Trip> get tripHistory => _tripHistory;
-  
-  /// Error message if any
-  String? get error => _error;
-  
-  /// Loading state
-  bool get isLoading => _isLoading;
-  
-  /// Current trip duration as formatted string
-  String get tripDuration => _tripDuration;
-  
-  /// Check if there's an active trip
-  bool get hasActiveTrip => _currentTrip != null && _currentTrip!.isActive;
-  
-  List<Bus> get activeBuses => _activeBuses;
+  BusRoute? _selectedRoute;
+  latlong2.LatLng? _currentLocation;
+  bool _isTracking = false;
+  String? _error;
+  StreamSubscription<Position>? _positionSubscription;
+  double _routeDistance = 0.0;
+  double _routeDuration = 0.0;
+  String? _lastCrossedVillage;
+  bool _showVillageNotification = false;
+  String? _villageNotificationMessage;
+  Timer? _notificationTimer;
+  final Set<String> _crossedVillages = {}; // Track crossed villages to prevent duplicates
+
   List<BusRoute> get routes => _routes;
-  
-  /// Load driver's bus information and active trip
-  Future<void> initialize(String driverId) async {
-    _isLoading = true;
-    notifyListeners();
-    
+  BusRoute? get selectedRoute => _selectedRoute;
+  latlong2.LatLng? get currentLocation => _currentLocation;
+  bool get isTracking => _isTracking;
+  String? get error => _error;
+  Map<String, String> get crossedVillages => _geocodingService.crossedVillages;
+  bool get showVillageNotification => _showVillageNotification;
+  String? get villageNotificationMessage => _villageNotificationMessage;
+
+  Future<void> loadRoutes() async {
     try {
-      // First, check if driver has an active trip
-      final tripResponse = await _supabase
-          .from('driver_trips')
-          .select()
-          .eq('driver_id', driverId)
-          .eq('is_active', true)
-          .limit(1)
-          .maybeSingle();
-      
-      if (tripResponse != null) {
-        _currentTrip = Trip.fromJson(tripResponse);
-        _startTripTimer();
-      }
-      
-      // Load trip history
-      await _loadTripHistory(driverId);
-      
-      _error = null;
+      final response = await _supabase.from('routes').select('*');
+      _routes = response.map((e) => BusRoute.fromJson(e)).toList();
+      notifyListeners();
     } catch (e) {
-      _error = 'Failed to load trip data: $e';
-    } finally {
-      _isLoading = false;
+      _error = 'Failed to load routes: $e';
+      notifyListeners();
+    }
+  }
+
+  void selectRoute(BusRoute route) {
+    _selectedRoute = route;
+    notifyListeners();
+  }
+
+  Future<void> startTripTracking() async {
+    if (_isTracking) return;
+
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        final requested = await Geolocator.requestPermission();
+        if (requested == LocationPermission.denied) {
+          throw Exception('Location permissions are required');
+        }
+      }
+
+      // Clear previous crossed villages when starting a new trip
+      _geocodingService.clearCrossedVillages();
+      _lastCrossedVillage = null;
+      _showVillageNotification = false;
+      _villageNotificationMessage = null;
+
+      _isTracking = true;
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((Position position) async {
+        _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+        
+        // Update location in database
+        await _updateLocationInSupabase();
+        
+        // Check if we've crossed a new village
+        await _checkForCrossedVillage();
+        
+        notifyListeners();
+      });
+    } catch (e) {
+      _error = 'Failed to start trip tracking: $e';
+      _isTracking = false;
       notifyListeners();
     }
   }
   
-  /// Start a new trip
-  Future<bool> startTrip({
-    required String driverId, 
-    required String busId, 
-    required String routeName
-  }) async {
-    if (hasActiveTrip) {
-      _error = 'You already have an active trip';
-      notifyListeners();
-      return false;
-    }
-    
-    _isLoading = true;
-    notifyListeners();
+  /// Check if we've crossed a new village and show notification
+  Future<void> _checkForCrossedVillage() async {
+    if (_currentLocation == null) return;
     
     try {
-      // Create a new trip entry
-      final tripId = 'trip_${DateTime.now().millisecondsSinceEpoch}';
-      final startTime = DateTime.now();
+    final villageName = await _geocodingService.checkCrossedVillage(
+      latlong2.LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
+    );
+    
+      if (villageName != null && 
+          villageName != _lastCrossedVillage && 
+          !_crossedVillages.contains(villageName)) {
+        
+        // Get the village center
+        final villageCenter = await _geocodingService.getVillageCenter(villageName);
+        if (villageCenter == null) return;
+        
+        // Calculate distance to village center
+        final distance = const latlong2.Distance().distance(
+          _currentLocation!,
+          villageCenter,
+        );
+        
+        // Only show notification if we're actually crossing the village
+        // (i.e., we're within the detection radius)
+        if (distance <= MapConstants.villageDetectionRadius) {
+      _lastCrossedVillage = villageName;
+          _crossedVillages.add(villageName);
       
-      final newTrip = Trip(
-        id: tripId,
-        busId: busId,
-        routeName: routeName,
-        startTime: startTime,
-        isActive: true,
-      );
+      // Get the current time for the notification
+      final now = DateTime.now();
+      final formattedTime = '${_formatHour(now.hour)}:${_formatMinute(now.minute)} ${now.hour >= 12 ? 'PM' : 'AM'}';
       
-      // Insert into database
-      await _supabase.from('driver_trips').insert({
-        'id': tripId,
-        'driver_id': driverId,
-        'bus_id': busId,
-        'route_name': routeName,
-        'start_time': startTime.toIso8601String(),
-        'is_active': true,
+      // Show notification
+      _showVillageNotification = true;
+      _villageNotificationMessage = '🏁 You crossed $villageName at $formattedTime.';
+          
+          // Store the crossed village in the database
+          await _storeCrossedVillage(villageName, now);
+      
+      // Auto-hide notification after 5 seconds
+      _notificationTimer?.cancel();
+          _notificationTimer = Timer(MapConstants.notificationDuration, () {
+        _showVillageNotification = false;
+        notifyListeners();
       });
       
-      _currentTrip = newTrip;
-      _startTripTimer();
-      _error = null;
-      _isLoading = false;
       notifyListeners();
-      return true;
+        }
+      }
     } catch (e) {
-      _error = 'Failed to start trip: $e';
-      _isLoading = false;
-      notifyListeners();
-      return false;
+      print('Error checking for crossed village: $e');
     }
   }
   
-  /// End the current trip
-  Future<bool> endTrip() async {
-    if (!hasActiveTrip) {
-      _error = 'No active trip to end';
-      notifyListeners();
-      return false;
-    }
-    
-    _isLoading = true;
-    notifyListeners();
-    
+  /// Format hour to ensure 12-hour format
+  String _formatHour(int hour) {
+    final h = hour > 12 ? hour - 12 : hour;
+    return h.toString().padLeft(2, '0');
+  }
+  
+  /// Format minute to ensure two digits
+  String _formatMinute(int minute) {
+    return minute.toString().padLeft(2, '0');
+  }
+
+  Future<void> _updateLocationInSupabase() async {
     try {
-      final endTime = DateTime.now();
-      
-      // Update trip in database
-      await _supabase
-          .from('driver_trips')
-          .update({
-            'end_time': endTime.toIso8601String(),
-            'is_active': false,
-          })
-          .eq('id', _currentTrip!.id);
-      
-      // Update local trip
-      final updatedTrip = Trip(
-        id: _currentTrip!.id,
-        busId: _currentTrip!.busId,
-        routeName: _currentTrip!.routeName,
-        startTime: _currentTrip!.startTime,
-        endTime: endTime,
-        isActive: false,
-      );
-      
-      _currentTrip = null;
-      _tripHistory.insert(0, updatedTrip);
-      _stopTripTimer();
-      _error = null;
-      _isLoading = false;
-      notifyListeners();
-      return true;
+      await _supabase.from('trip_locations').upsert({
+        'trip_id': 'your_trip_id',
+        'latitude': _currentLocation!.latitude,
+        'longitude': _currentLocation!.longitude,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
     } catch (e) {
-      _error = 'Failed to end trip: $e';
-      _isLoading = false;
+      _error = 'Failed to update location: $e';
       notifyListeners();
-      return false;
     }
   }
+
+  Future<void> stopTripTracking() async {
+    _isTracking = false;
+    await _positionSubscription?.cancel();
+    _notificationTimer?.cancel();
+    _showVillageNotification = false;
+    notifyListeners();
+  }
   
-  /// Load trip history for a driver
-  Future<void> _loadTripHistory(String driverId) async {
+  /// Dismiss the village notification manually
+  void dismissVillageNotification() {
+    _showVillageNotification = false;
+    _notificationTimer?.cancel();
+    notifyListeners();
+  }
+
+  Future<List<latlong2.LatLng>> calculateRoute(
+      latlong2.LatLng start, latlong2.LatLng end) async {
     try {
-      final response = await _supabase
-          .from('driver_trips')
-          .select()
-          .eq('driver_id', driverId)
-          .eq('is_active', false)
-          .order('start_time', ascending: false)
-          .limit(30);
+      final orsApiKey = dotenv.env['ORS_API_KEY'] ?? '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
       
-      _tripHistory = response.map<Trip>((trip) => Trip.fromJson(trip)).toList();
-      notifyListeners();
+      const url = 'https://api.openrouteservice.org/v2/directions/driving-car';
+      final body = {
+        'coordinates': [
+          [start.longitude, start.latitude],
+          [end.longitude, end.latitude]
+        ],
+        'preference': 'recommended',
+        'instructions': true,
+        'geometry_simplify': false,
+        'format': 'geojson',
+        'elevation': false,
+        'maneuvers': true,
+        'radiuses': [5000, 5000],
+        'continue_straight': false,
+      };
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': orsApiKey,
+        },
+        body: json.encode(body),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final coordinates = data['features'][0]['geometry']['coordinates'];
+        
+        // Convert coordinates to LatLng objects
+        final routePoints = coordinates
+            .map<latlong2.LatLng>((coord) => latlong2.LatLng(coord[1], coord[0]))
+            .toList();
+            
+        // Store route metadata
+        final summary = data['features'][0]['properties']['summary'];
+        final distance = summary['distance'] as double;
+        final duration = summary['duration'] as double;
+        
+        // Notify listeners about the route details
+        _routeDistance = distance;
+        _routeDuration = duration;
+        notifyListeners();
+        
+        return routePoints;
+      } else {
+        print('Failed to calculate route: ${response.statusCode} - ${response.body}');
+        return _addIntermediatePoints(start, end);
+      }
     } catch (e) {
-      print('Error loading trip history: $e');
-      // We don't want to interrupt the entire flow if history fails to load
+      _error = 'Failed to calculate route: $e';
+      notifyListeners();
+      return _addIntermediatePoints(start, end);
     }
   }
   
-  /// Start timer to update trip duration
-  void _startTripTimer() {
-    _stopTripTimer();
+  /// Add intermediate points between start and end to create a more natural-looking route
+  /// This is a fallback method when the routing API fails
+  List<latlong2.LatLng> _addIntermediatePoints(latlong2.LatLng start, latlong2.LatLng end) {
+    final points = <latlong2.LatLng>[];
+    points.add(start);
     
-    _updateTripDuration();
-    _tripTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _updateTripDuration();
-    });
-  }
-  
-  /// Stop trip duration timer
-  void _stopTripTimer() {
-    _tripTimer?.cancel();
-    _tripTimer = null;
-    _tripDuration = '00:00:00';
-  }
-  
-  /// Update the trip duration string
-  void _updateTripDuration() {
-    if (_currentTrip == null) return;
+    // Calculate distance between points
+    final distance = const latlong2.Distance().distance(start, end);
     
-    final now = DateTime.now();
-    final difference = now.difference(_currentTrip!.startTime);
+    // Add more points for longer distances
+    final numPoints = (distance / 500).ceil(); // One point every 500 meters
     
-    final hours = difference.inHours;
-    final minutes = difference.inMinutes.remainder(60);
-    final seconds = difference.inSeconds.remainder(60);
+    if (numPoints > 1) {
+      for (int i = 1; i < numPoints; i++) {
+        // Calculate intermediate point with slight randomness to simulate road curves
+        final ratio = i / numPoints;
+        final lat = start.latitude + (end.latitude - start.latitude) * ratio;
+        final lng = start.longitude + (end.longitude - start.longitude) * ratio;
+        
+        // Add some randomness to simulate roads (not straight lines)
+        final randomFactor = 0.0005 * sin(i * pi / numPoints); // Small random offset
+        final offsetLat = lat + randomFactor * cos(i.toDouble());
+        final offsetLng = lng + randomFactor * sin(i.toDouble());
+        
+        points.add(latlong2.LatLng(offsetLat, offsetLng));
+      }
+    }
     
-    _tripDuration = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    notifyListeners();
+    points.add(end);
+    return points;
   }
   
-  /// Clear all data, typically called at logout
-  void clear() {
-    _currentTrip = null;
-    _tripHistory.clear();
-    _stopTripTimer();
-    _error = null;
-    notifyListeners();
-  }
-  
-  @override
-  void dispose() {
-    _stopTripTimer();
-    super.dispose();
-  }
-  
-  /// Initialize real-time subscriptions
-  void initSubscriptions() {
-    // Subscribe to bus location updates
-    _supabase
-        .from('bus_locations')
-        .stream(primaryKey: ['id'])
-        .order('timestamp', ascending: false)
-        .limit(100)
-        .listen((data) {
-          _updateBusLocations(data);
-        });
-  }
-  
-  /// Update bus locations from real-time data
-  void _updateBusLocations(List<Map<String, dynamic>> data) {
-    final updatedBuses = data.map((json) {
-      final busId = json['bus_id'] as String;
-      final existingBus = _activeBuses.firstWhere(
-        (bus) => bus.id == busId,
-        orElse: () => Bus(
-          id: busId,
-          name: 'Bus $busId',
-          routeId: json['route_id'] as String? ?? '',
-          latitude: (json['latitude'] as num).toDouble(),
-          longitude: (json['longitude'] as num).toDouble(),
-          capacity: 40, // Default capacity
-          currentPassengers: 0,
-          isActive: true,
-          lastUpdated: DateTime.parse(json['timestamp'] as String),
-        ),
-      );
-      
-      return existingBus.copyWith(
-        latitude: (json['latitude'] as num).toDouble(),
-        longitude: (json['longitude'] as num).toDouble(),
-        lastUpdated: DateTime.parse(json['timestamp'] as String),
-      );
-    }).toList();
-    
-    _activeBuses = updatedBuses;
-    notifyListeners();
-  }
-  
-  /// Get route details by ID
-  Future<BusRoute> getRouteDetails(String routeId) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-    
+  /// Fetch route information including stops
+  Future<Map<String, dynamic>?> fetchRouteInfo(String routeId) async {
     try {
-      final response = await _supabase
+      // Fetch route details from Supabase
+      final routeResponse = await _supabase
           .from('routes')
-          .select()
+          .select('*')
           .eq('id', routeId)
           .single();
       
-      final route = BusRoute.fromJson(response);
-      _error = null;
-      _isLoading = false;
-      notifyListeners();
-      return route;
-    } catch (e) {
-      _error = 'Failed to load route details: $e';
-      _isLoading = false;
-      notifyListeners();
-      throw Exception(_error);
-    }
-  }
-  
-  /// Get all active buses for a specific route
-  Future<List<Bus>> getActiveBusesForRoute(String routeId) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-    
-    try {
-      // Get the latest location for each active bus on this route
-      final response = await _supabase
-          .from('bus_locations')
-          .select('''
-            bus_id,
-            latitude,
-            longitude,
-            timestamp,
-            buses (
-              id,
-              name,
-              capacity,
-              status
-            )
-          ''')
+      if (routeResponse == null) {
+        throw Exception('Route not found');
+      }
+      
+      // Fetch stops for this route
+      final stopsResponse = await _supabase
+          .from('route_stops')
+          .select('*')
           .eq('route_id', routeId)
-          .eq('buses.status', 'active')
-          .order('timestamp', ascending: false)
-          .limit(1, referencedTable: 'buses');
+          .order('sequence_number');
       
-      final buses = response.map<Bus>((json) {
-        final bus = json['buses'] as Map<String, dynamic>;
-        return Bus(
-          id: bus['id'] as String,
-          name: bus['name'] as String,
-          routeId: routeId,
-          latitude: (json['latitude'] as num).toDouble(),
-          longitude: (json['longitude'] as num).toDouble(),
-          capacity: bus['capacity'] as int,
-          currentPassengers: 0, // TODO: Implement passenger counting
-          isActive: bus['status'] == 'active',
-          lastUpdated: DateTime.parse(json['timestamp'] as String),
-        );
-      }).toList();
+      // Combine the data
+      final routeInfo = {
+        ...routeResponse,
+        'stops': stopsResponse,
+      };
       
-      _activeBuses = buses;
-      _error = null;
-      _isLoading = false;
-      notifyListeners();
-      return buses;
+      return routeInfo;
     } catch (e) {
-      _error = 'Failed to load active buses: $e';
-      _isLoading = false;
+      _error = 'Failed to fetch route info: $e';
       notifyListeners();
-      throw Exception(_error);
+      return null;
     }
   }
   
-  /// Get all available routes
-  Future<List<BusRoute>> loadRoutes() async {
-    // Don't call notifyListeners() at the beginning to avoid setState during build
-    _isLoading = true;
-    _error = null;
-    
-    try {
-      final response = await _supabase
-          .from('routes')
-          .select()
-          .order('name');
-      
-      _routes = response.map<BusRoute>((json) => BusRoute.fromJson(json)).toList();
-      _error = null;
-      _isLoading = false;
-      // Only notify listeners after the async operation is complete
-      notifyListeners();
-      return _routes;
-    } catch (e) {
-      _error = 'Failed to load routes: $e';
-      _isLoading = false;
-      // Only notify listeners after the async operation is complete
-      notifyListeners();
-      return [];
-    }
-  }
-  
-  /// Get favorite routes for the current user
-  Future<List<BusRoute>> getFavoriteRoutes() async {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return [];
-    
-    try {
-      final response = await _supabase
-          .from('favorite_routes')
-          .select('''
-            route_id,
-            routes (*)
-          ''')
-          .eq('user_id', userId);
-      
-      return response.map<BusRoute>((json) {
-        return BusRoute.fromJson(json['routes'] as Map<String, dynamic>);
-      }).toList();
-    } catch (e) {
-      _error = 'Failed to load favorite routes: $e';
-      notifyListeners();
-      return [];
-    }
-  }
-  
-  /// Add a route to favorites
-  Future<void> addToFavorites(String routeId) async {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return;
-    
-    try {
-      await _supabase
-          .from('favorite_routes')
-          .upsert({
-            'user_id': userId,
-            'route_id': routeId,
-            'created_at': DateTime.now().toIso8601String(),
-          });
-      
-      _error = null;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to add route to favorites: $e';
-      notifyListeners();
-    }
-  }
-  
-  /// Remove a route from favorites
-  Future<void> removeFromFavorites(String routeId) async {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return;
-    
-    try {
-      await _supabase
-          .from('favorite_routes')
-          .delete()
-          .match({
-            'user_id': userId,
-            'route_id': routeId,
-          });
-      
-      _error = null;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to remove route from favorites: $e';
-      notifyListeners();
-    }
-  }
-  
-  /// Check if a route is in favorites
-  Future<bool> isFavorite(String routeId) async {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return false;
-    
-    try {
-      final response = await _supabase
-          .from('favorite_routes')
-          .select()
-          .match({
-            'user_id': userId,
-            'route_id': routeId,
-          })
-          .maybeSingle();
-      
-      return response != null;
-    } catch (e) {
-      return false;
-    }
-  }
-  
-  /// Search for buses by number or route name
+  /// Search for buses by route name or bus ID
   Future<List<Map<String, dynamic>>> searchBuses(String query) async {
     try {
+      // Search in active_trips table
       final response = await _supabase
-          .from('driver_trips')
-          .select('''
-            id,
-            bus_id,
-            route_name,
-            route_id,
-            is_active,
-            start_time
-          ''')
-          .or('bus_id.ilike.%$query%,route_name.ilike.%$query%')
-          .order('start_time', ascending: false)
-          .limit(10);
-
-      return List<Map<String, dynamic>>.from(response);
+          .from('active_trips')
+          .select('*, routes!inner(*)')
+          .or('bus_id.ilike.%$query%, routes.name.ilike.%$query%');
+      
+      // Format the results
+      return response.map<Map<String, dynamic>>((trip) {
+        return {
+          'bus_id': trip['bus_id'],
+          'route_id': trip['route_id'],
+          'route_name': trip['routes']['name'],
+          'is_active': trip['is_active'] ?? true,
+          'last_updated': trip['last_updated'],
+        };
+      }).toList();
     } catch (e) {
       _error = 'Failed to search buses: $e';
       notifyListeners();
-      rethrow;
-    }
-  }
-  
-  /// Get route data including stops and path points
-  Future<Map<String, dynamic>> getRouteData(String routeId) async {
-    try {
-      final response = await _supabase
-          .from('bus_routes')
-          .select('''
-            id,
-            name,
-            stops (
-              id,
-              name,
-              latitude,
-              longitude
-            ),
-            path_points (
-              latitude,
-              longitude
-            )
-          ''')
-          .eq('id', routeId)
-          .single();
-
-      return {
-        'stops': response['stops'],
-        'points': response['path_points'],
-      };
-    } catch (e) {
-      _error = 'Failed to get route data: $e';
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  /// Get the current location of a bus on a specific route
-  Future<Map<String, dynamic>?> getBusLocation(String routeId) async {
-    try {
-      final response = await _supabase
-          .from('bus_locations')
-          .select('''
-            bus_id,
-            latitude,
-            longitude,
-            timestamp
-          ''')
-          .eq('route_id', routeId)
-          .order('timestamp', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      return response;
-    } catch (e) {
-      _error = 'Failed to get bus location: $e';
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  Future<List<BusRoute>> getPreviousRoutes(String driverId) async {
-    try {
-      final response = await _supabase
-          .from('driver_trips')
-          .select('route_id, route_name, bus_id, start_time')
-          .eq('driver_id', driverId)
-          .order('start_time', ascending: false)
-          .limit(10);
-
-      final routes = <BusRoute>[];
-      for (final trip in response) {
-        final routeData = await _supabase
-            .from('bus_routes')
-            .select()
-            .eq('id', trip['route_id'])
-            .single();
-        
-        routes.add(BusRoute.fromJson(routeData));
-      }
-
-      return routes;
-    } catch (e) {
-      _error = 'Failed to load previous routes: $e';
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  Future<void> saveTripHistory({
-    required String driverId,
-    required String busId,
-    required String routeId,
-    required String routeName,
-    required LatLng destination,
-  }) async {
-    try {
-      await _supabase.from('trip_history').insert({
-        'driver_id': driverId,
-        'bus_id': busId,
-        'route_id': routeId,
-        'route_name': routeName,
-        'destination_lat': destination.latitude,
-        'destination_lng': destination.longitude,
-        'start_time': DateTime.now().toIso8601String(),
-      });
-    } catch (e) {
-      _error = 'Failed to save trip history: $e';
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getTripHistory(String driverId) async {
-    try {
-      final response = await _supabase
-          .from('trip_history')
-          .select()
-          .eq('driver_id', driverId)
-          .order('start_time', ascending: false)
-          .limit(10);
-
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      _error = 'Failed to load trip history: $e';
-      notifyListeners();
-      rethrow;
+      return [];
     }
   }
 
@@ -701,182 +380,133 @@ class TripService extends ChangeNotifier {
     String busId,
     double latitude,
     double longitude,
-    double heading,
-    double speed,
+    double? heading,
+    double? speed,
   ) async {
     try {
-      final response = await _supabase
-          .from('bus_locations')
-          .upsert({
-            'bus_id': busId,
-            'latitude': latitude,
-            'longitude': longitude,
-            'heading': heading,
-            'speed': speed,
-            'timestamp': DateTime.now().toIso8601String(),
-          })
-          .select();
-      
-      if (response.isEmpty) {
-        _error = 'Failed to update bus location';
-        notifyListeners();
-      }
+      await _supabase.from('trip_locations').insert({
+        'trip_id': busId,
+        'latitude': latitude,
+        'longitude': longitude,
+        'heading': heading,
+        'speed': speed,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
     } catch (e) {
-      _error = 'Error updating bus location: $e';
+      _error = 'Failed to update bus location: $e';
       notifyListeners();
-      rethrow;
     }
   }
 
-  // Fetch route information by routeId
-  Future<Map<String, dynamic>?> fetchRouteInfo(String routeId) async {
+  Future<void> _storeCrossedVillage(String villageName, DateTime timestamp) async {
     try {
-      final response = await _supabase
-          .from('routes')
-          .select('*, stops:trip_stops(*)')
-          .eq('id', routeId)
-          .single();
+      await _supabase.from('crossed_villages').insert({
+        'trip_id': 'your_trip_id', // Replace with actual trip ID
+        'village_name': villageName,
+        'timestamp': timestamp.toIso8601String(),
+        'latitude': _currentLocation!.latitude,
+        'longitude': _currentLocation!.longitude,
+      });
+    } catch (e) {
+      print('Failed to store crossed village: $e');
+    }
+  }
+
+  /// Get the village name for a given location
+  Future<String?> getVillageName(latlong2.LatLng location) async {
+    try {
+      // Use the GeocodingService to get the village name
+      final villageName = await _geocodingService.getVillageName(location);
       
-      if (response != null) {
-        // Format the response
-        final Map<String, dynamic> routeInfo = {
-          'id': response['id'],
-          'name': response['name'],
-          'description': response['description'],
-          'is_active': response['is_active'],
-          'stops': response['stops'] ?? [],
-        };
+      if (villageName != null) {
+        // Get the village center
+        final villageCenter = await _geocodingService.getVillageCenter(villageName);
+        if (villageCenter == null) return null;
         
-        return routeInfo;
-      }
-      
-      return null;
-    } catch (e) {
-      debugPrint('Error fetching route info: $e');
-      return null;
-    }
-  }
-  
-  // Get bus location by busId
-  Future<LatLng?> getBusLocationById(String busId) async {
-    try {
-      final response = await _supabase
-          .from('bus_locations')
-          .select('latitude, longitude')
-          .eq('bus_id', busId)
-          .order('timestamp', ascending: false)
-          .limit(1)
-          .single();
-      
-      if (response != null) {
-        return LatLng(
-          response['latitude'] as double,
-          response['longitude'] as double,
+        // Calculate distance to village center
+        final distance = const latlong2.Distance().distance(
+          location,
+          villageCenter,
         );
+        
+        // Only return village name if we're within the detection radius
+        if (distance <= MapConstants.villageDetectionRadius) {
+          return villageName;
+        }
       }
       
       return null;
     } catch (e) {
-      debugPrint('Error getting bus location: $e');
+      print('Error getting village name: $e');
       return null;
     }
   }
-  
-  // Start a new trip
-  Future<String?> startNewTrip({
-    required String driverId,
-    required String routeId,
-    required LatLng startLocation,
-  }) async {
+
+  /// Get all crossed villages for a trip
+  Future<List<Map<String, dynamic>>> getCrossedVillages(String tripId) async {
     try {
       final response = await _supabase
-          .from('trips')
-          .insert({
-            'driver_id': driverId,
-            'route_id': routeId,
-            'status': 'in_progress',
-            'start_location': {
-              'latitude': startLocation.latitude,
-              'longitude': startLocation.longitude,
-            },
-            'actual_start_time': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
+          .from('crossed_villages')
+          .select('*')
+          .eq('trip_id', tripId)
+          .order('timestamp', ascending: false);
       
-      return response['id'] as String;
+      return response.map<Map<String, dynamic>>((village) {
+        return {
+          'village_name': village['village_name'],
+          'timestamp': DateTime.parse(village['timestamp']),
+          'latitude': village['latitude'],
+          'longitude': village['longitude'],
+        };
+      }).toList();
     } catch (e) {
-      debugPrint('Error starting trip: $e');
-      return null;
-    }
-  }
-  
-  // End a trip
-  Future<bool> endCurrentTrip({
-    required String tripId,
-    required LatLng endLocation,
-  }) async {
-    try {
-      await _supabase
-          .from('trips')
-          .update({
-            'status': 'completed',
-            'end_location': {
-              'latitude': endLocation.latitude,
-              'longitude': endLocation.longitude,
-            },
-            'end_time': DateTime.now().toIso8601String(),
-          })
-          .eq('id', tripId);
-      
-      return true;
-    } catch (e) {
-      debugPrint('Error ending trip: $e');
-      return false;
-    }
-  }
-  
-  // Update bus location
-  Future<bool> updateBusLocationWithTrip({
-    required String busId,
-    required String tripId,
-    required LatLng location,
-    double? speed,
-    double? heading,
-  }) async {
-    try {
-      await _supabase
-          .from('bus_locations')
-          .insert({
-            'bus_id': busId,
-            'trip_id': tripId,
-            'latitude': location.latitude,
-            'longitude': location.longitude,
-            'speed': speed,
-            'heading': heading,
-            'timestamp': DateTime.now().toIso8601String(),
-          });
-      
-      return true;
-    } catch (e) {
-      debugPrint('Error updating bus location: $e');
-      return false;
-    }
-  }
-  
-  // Get active trips for a route
-  Future<List<Map<String, dynamic>>> getActiveTrips(String routeId) async {
-    try {
-      final response = await _supabase
-          .from('trips')
-          .select('id, driver_id, route_id, status, actual_start_time')
-          .eq('route_id', routeId)
-          .eq('status', 'in_progress');
-      
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      debugPrint('Error getting active trips: $e');
+      print('Failed to get crossed villages: $e');
       return [];
     }
   }
-} 
+
+  /// Get the village center coordinates
+  Future<latlong2.LatLng?> getVillageCenter(String villageName) async {
+    try {
+      return await _geocodingService.getVillageCenter(villageName);
+    } catch (e) {
+      print('Error getting village center: $e');
+      return null;
+    }
+  }
+
+  /// Store crossed village information
+  Future<void> storeCrossedVillage(String villageName, DateTime timestamp) async {
+    try {
+      await _supabase.from('crossed_villages').insert({
+        'trip_id': 'your_trip_id', // Replace with actual trip ID
+        'village_name': villageName,
+        'timestamp': timestamp.toIso8601String(),
+        'latitude': _currentLocation!.latitude,
+        'longitude': _currentLocation!.longitude,
+      });
+    } catch (e) {
+      print('Failed to store crossed village: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _crossedVillages.clear();
+    _notificationTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<List<BusRoute>> fetchDriverRoutes() async {
+    try {
+      final response = await _supabase.from('routes').select('*');
+      _routes = response.map((e) => BusRoute.fromJson(e)).toList();
+      notifyListeners();
+      return _routes;
+    } catch (e) {
+      _error = 'Failed to fetch driver routes: $e';
+      notifyListeners();
+      return [];
+    }
+  }
+}

@@ -1,79 +1,70 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import '../utils/logger_util.dart';
 
-/// LocationService handles real-time location tracking and updates
 class LocationService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
-  
+
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
   StreamSubscription? _locationSubscription;
   bool _isTracking = false;
   String? _error;
-  
-  /// Current position
+
   Position? get currentPosition => _currentPosition;
-  
-  /// Whether location tracking is active
   bool get isTracking => _isTracking;
-  
-  /// Error message if any
   String? get error => _error;
-  
-  /// Start location tracking
+
   Future<void> startTracking(String userId, String role) async {
     if (_isTracking) return;
-    
+
     try {
-      // Check location permissions
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         final requested = await Geolocator.requestPermission();
         if (requested == LocationPermission.denied) {
           throw Exception('Location permissions are required');
+        } else if (requested == LocationPermission.deniedForever) {
+          throw Exception(
+              'Location permissions are permanently denied. Please enable them from the app settings.');
         }
       }
-      
-      // Start position updates
+
       _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          distanceFilter: 10, // Update every 10 meters
+          distanceFilter: 10,
         ),
       ).listen((Position position) async {
         _currentPosition = position;
-        
-        // Update location in Supabase
         await _updateLocation(userId, role, position);
-        
         notifyListeners();
       });
-      
+
       _isTracking = true;
       _error = null;
       notifyListeners();
-      
     } catch (e) {
       _error = 'Failed to start location tracking: ${e.toString()}';
       _isTracking = false;
       notifyListeners();
     }
   }
-  
-  /// Stop location tracking
+
   Future<void> stopTracking() async {
-    await _positionStream?.cancel();
-    await _locationSubscription?.cancel();
+    _positionStream?.cancel();
+    _locationSubscription?.cancel();
     _isTracking = false;
     _currentPosition = null;
     notifyListeners();
   }
-  
-  /// Update location in Supabase
-  Future<void> _updateLocation(String userId, String role, Position position) async {
+
+  Future<void> _updateLocation(
+      String userId, String role, Position position) async {
     try {
       await _supabase.from('user_locations').upsert({
         'user_id': userId,
@@ -86,47 +77,59 @@ class LocationService extends ChangeNotifier {
         'timestamp': DateTime.now().toIso8601String(),
       });
     } catch (e) {
-      _error = 'Failed to update location: ${e.toString()}';
+      LoggerUtil.error('Error updating location', e);
+      _error = 'Failed to update location';
       notifyListeners();
     }
   }
-  
-  /// Subscribe to location updates for a specific role
-  void subscribeToLocationUpdates(String role, Function(List<Map<String, dynamic>>) onUpdate) {
+
+  void subscribeToLocationUpdates(
+      String role, Function(List<Map<String, dynamic>>) onUpdate) {
     _locationSubscription?.cancel();
-    
+
     _locationSubscription = _supabase
-      .from('user_locations')
-      .stream(primaryKey: ['user_id'])
-      .eq('role', role)
-      .listen((data) {
-        onUpdate(data);
-      });
+        .from('user_locations')
+        .stream(primaryKey: ['user_id'])
+        .eq('role', role)
+        .listen((data) {
+          onUpdate(data);
+        }, onError: (error) {
+          LoggerUtil.error('Error subscribing to location updates', error);
+        });
   }
-  
-  /// Calculate distance between two points
+
   double calculateDistance(LatLng point1, LatLng point2) {
-    return Geolocator.distanceBetween(
-      point1.latitude,
-      point1.longitude,
-      point2.latitude,
-      point2.longitude,
-    );
+    // Calculate distance using the Haversine formula
+    const double earthRadius = 6371000; // in meters
+    final lat1 = point1.latitude * (math.pi / 180);
+    final lat2 = point2.latitude * (math.pi / 180);
+    final dLat = (point2.latitude - point1.latitude) * (math.pi / 180);
+    final dLon = (point2.longitude - point1.longitude) * (math.pi / 180);
+
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
+    return earthRadius * c; // distance in meters
   }
-  
-  /// Calculate bearing between two points
+
   double calculateBearing(LatLng point1, LatLng point2) {
-    return Geolocator.bearingBetween(
-      point1.latitude,
-      point1.longitude,
-      point2.latitude,
-      point2.longitude,
-    );
+    final dLon = (point2.longitude - point1.longitude) * (math.pi / 180);
+    final lat1 = point1.latitude * (math.pi / 180);
+    final lat2 = point2.latitude * (math.pi / 180);
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    return math.atan2(y, x);
   }
-  
+
   @override
   void dispose() {
-    stopTracking();
+    _positionStream?.cancel();
+    _locationSubscription?.cancel();
     super.dispose();
   }
-} 
+}

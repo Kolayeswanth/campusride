@@ -11,6 +11,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/map_service.dart';
 import '../../../core/utils/location_utils.dart';
@@ -18,9 +19,13 @@ import '../../../core/theme/theme.dart';
 import '../../../core/widgets/platform_safe_map.dart';
 import '../widgets/driver_id_dialog.dart';
 import '../widgets/trip_controls.dart';
+import '../models/village_crossing.dart';
 import '../widgets/trip_status_card.dart';
+import '../widgets/speed_tracker.dart';
+import '../widgets/village_crossing_log.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../../core/constants/map_constants.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({Key? key}) : super(key: key);
@@ -37,11 +42,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   bool _isLoading = true;
   bool _isTracking = false;
   bool _isTripStarted = false;
+  bool _hasReachedDestination = false;
   String? _error;
   String? _driverId;
   List<latlong2.LatLng> _routePoints = [];
   List<latlong2.LatLng> _completedPoints = [];
-  double _completion = 0.0; // 0 to 1
+  double _completion = 0.0;
   Timer? _locationUpdateTimer;
   Symbol? _driverMarker;
   Symbol? _destinationMarker;
@@ -57,328 +63,488 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   List<Map<String, dynamic>> _searchResults = [];
   
   // Animation controller for pulsing effect
-  Timer? _pulseTimer;
-  double _pulseRadius = 15.0;
-  bool _pulseExpanding = true;
+  Timer? _animationTimer;
+  double _animationProgress = 0.0;
+  Symbol? _busIconId;
   
+  // Add these new variables at the start of the class
+  bool _userInteractingWithMap = false;
+  DateTime? _lastUserInteraction;
+
+  // Add new state variables
+  TextEditingController _startLocationController = TextEditingController();
+  TextEditingController _destinationController = TextEditingController();
+  TextEditingController _driverIdController = TextEditingController();
+  String? _estimatedDistance;
+  String? _estimatedTime;
+  bool _isEditingDriverId = false;
+  LatLng? _lastClickedPoint;
+  DateTime? _estimatedArrivalTime;
+
+  // Add new state variables for start location search
+  List<Map<String, dynamic>> _startLocationResults = [];
+  bool _isSearchingStartLocation = false;
+
+  // Add new state variables for speed tracking
+  double _lastDeviationCheckDistance = 0.0;
+  static const double _deviationThreshold = 50.0; // meters
+  static const double _deviationCheckInterval = 100.0; // meters
+
+  String _timeToDestination = '--:--';
+  String _distanceRemaining = '-- km';
+
+  // Add new state variable for zoom control
+  bool _shouldAutoZoom = false;
+  static const double _autoZoomRadius = 3.0; // 3 km radius
+
+  // Add new state variables for UI visibility
+  bool _isUIVisible = true;
+  bool _isManualControl = false;
+
+  // Add new state variables for clear icon visibility
+  bool _showStartClearIcon = false;
+  bool _showDestClearIcon = false;
+
+  // Village tracking variables
+  Set<String> _passedVillages = {};
+  List<VillageCrossing> _villageCrossings = [];
+  Timer? _villageCheckTimer;
+  static const double _villageCheckInterval = 500.0; // meters
+  double _lastVillageCheckDistance = 0.0;
+  bool _showVillageCrossingLog = false;
+  
+  // Trip tracking
+  String? _tripId;
+
+  double _currentSpeed = 0.0; // Add this field to track current speed
+
+  // Add method to toggle UI visibility
+  void _toggleUIVisibility() {
+    setState(() {
+      _isUIVisible = !_isUIVisible;
+      _isManualControl = !_isUIVisible;
+    });
+  }
+
+  // Add method to handle map interaction start
+  void _handleMapInteractionStart() {
+    if (_isUIVisible) {
+      setState(() {
+        _isUIVisible = false;
+        _isManualControl = true;
+      });
+    }
+  }
+
+  // Add method to handle map interaction end
+  void _handleMapInteractionEnd() {
+    if (_isManualControl) {
+      setState(() {
+        _isManualControl = false;
+      });
+    }
+  }
+
+  // Add method to check if driver has deviated from route
+  bool _hasDeviatedFromRoute(Position currentPosition) {
+    if (_routePoints.isEmpty) return false;
+    
+    // Find the closest point on the route
+    double minDistance = double.infinity;
+    for (final point in _routePoints) {
+      final distance = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        point.latitude,
+        point.longitude,
+      );
+      minDistance = min(minDistance, distance);
+    }
+    
+    return minDistance > _deviationThreshold;
+  }
+
+  // Add method to recalculate route from current position
+  Future<void> _recalculateRouteFromCurrentPosition() async {
+    if (_currentPosition == null || _destinationPosition == null) return;
+    
+    try {
+      final requestBody = {
+        'coordinates': [
+          [_currentPosition!.longitude, _currentPosition!.latitude],
+          [_destinationPosition!.longitude, _destinationPosition!.latitude]
+        ],
+        'preference': 'shortest',
+        'instructions': false,
+        'units': 'km',
+        'geometry_simplify': false,
+        'continue_straight': true
+      };
+
+      final orsApiKey = dotenv.env['ORS_API_KEY'] ?? '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
+      
+      final response = await http.post(
+        Uri.parse('https://api.openrouteservice.org/v2/directions/driving-car/geojson'),
+        headers: {
+          'Authorization': orsApiKey,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Accept': 'application/json, application/geo+json'
+        },
+        body: json.encode(requestBody)
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['features'] != null && 
+            data['features'].isNotEmpty && 
+            data['features'][0]['geometry'] != null) {
+          
+          final coordinates = data['features'][0]['geometry']['coordinates'] as List;
+          final List<LatLng> routePoints = coordinates.map((coord) {
+            return LatLng(coord[1] as double, coord[0] as double);
+          }).toList();
+
+          // Update the route display
+          if (_routeLine != null) {
+            await _mapController?.removeLine(_routeLine!);
+          }
+
+          _routeLine = await _mapController?.addLine(
+            LineOptions(
+              geometry: routePoints,
+              lineColor: "#4285F4",
+              lineWidth: 6.0,
+              lineOpacity: 0.9,
+            ),
+          );
+
+          setState(() {
+            _routePoints = routePoints.map((point) => 
+              latlong2.LatLng(point.latitude, point.longitude)).toList();
+          });
+
+          _updateETAAndDistance();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Route updated based on current position'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error recalculating route: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _initializeLocation();
-    _startPulseAnimation();
-  }
-  
-  void _startPulseAnimation() {
-    _pulseTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (_pulseExpanding) {
-        _pulseRadius += 0.5;
-        if (_pulseRadius >= 25.0) {
-          _pulseExpanding = false;
-        }
-      } else {
-        _pulseRadius -= 0.5;
-        if (_pulseRadius <= 15.0) {
-          _pulseExpanding = true;
-        }
-      }
-      
-      // Update the circle if it exists
-      _updateLocationCircle();
+    _driverIdController.text = _driverId ?? '';
+    
+    // Initialize MapService
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final mapService = Provider.of<MapService>(context, listen: false);
+      mapService.initializeMap();
     });
+
+    // Start speed updates
+    _locationUpdateTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateLocation(),
+    );
   }
-  
-  void _updateLocationCircle() {
-    if (_mapController != null && _currentPosition != null && _locationCircle != null) {
-      _mapController!.updateCircle(_locationCircle!, CircleOptions(
-        geometry: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-        circleRadius: _pulseRadius,
-      ));
-    }
-  }
-  
+
   @override
   void dispose() {
+    _startLocationController.dispose();
+    _destinationController.dispose();
+    _driverIdController.dispose();
     _stopLocationUpdates();
     _locationUpdateTimer?.cancel();
-    _pulseTimer?.cancel();
+    _animationTimer?.cancel();
     
     if (_mapController != null) {
-      // Clean up map resources
       _mapController!.onSymbolTapped.remove(_onSymbolTapped);
-      
-      // Clean up circles
       if (_locationCircle != null) {
         _mapController!.removeCircle(_locationCircle!);
       }
-      
-      // Clean up symbols
       for (final symbol in _symbols) {
         _mapController!.removeSymbol(symbol);
       }
-      
-      // Clean up lines
       if (_routeLine != null) {
         _mapController!.removeLine(_routeLine!);
       }
       if (_completedRouteLine != null) {
         _mapController!.removeLine(_completedRouteLine!);
       }
-      
       _mapController!.dispose();
     }
     
     _searchController.dispose();
     super.dispose();
   }
-  
+
+  void _updateLocationCircle() {
+    if (_mapController != null && _currentPosition != null) {
+      try {
+        // Remove any existing bus icon
+        if (_busIconId != null) {
+          _mapController!.removeSymbol(_busIconId!);
+          _busIconId = null;
+        }
+        
+        // Add new bus icon at current location
+        _addBusIcon(latlong2.LatLng(_currentPosition!.latitude, _currentPosition!.longitude));
+      } catch (e) {
+        print('Error updating location: $e');
+      }
+    }
+  }
+
   Future<void> _initializeLocation() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
     try {
-      // First check if location services are enabled
+      // Check if location service is enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        // Show dialog to prompt user to enable location services
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: const Text('Location Services Disabled'),
-              content: const Text(
-                'Location services are disabled. Please enable location services in your device settings to use this feature.'
-              ),
-              actions: <Widget>[
-                TextButton(
-                  child: const Text('Open Settings'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Geolocator.openLocationSettings();
-                  },
-                ),
-                TextButton(
-                  child: const Text('Cancel'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ],
-            );
-          },
-        );
-        throw Exception('Location services are disabled');
+        setState(() {
+          _error = 'Location services are disabled. Please enable location services.';
+          _isLoading = false;
+        });
+        return;
       }
-      
-      // Check and request location permissions
+
+      // Check location permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          throw Exception('Location permission denied');
+          setState(() {
+            _error = 'Location permissions are denied. Please enable them in settings.';
+            _isLoading = false;
+          });
+          return;
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
-        // Show dialog to guide user to app settings
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: const Text('Location Permission Required'),
-              content: const Text(
-                'Location permission is permanently denied. Please enable it in app settings to use this feature.'
-              ),
-              actions: <Widget>[
-                TextButton(
-                  child: const Text('Open Settings'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Geolocator.openAppSettings();
-                  },
-                ),
-                TextButton(
-                  child: const Text('Cancel'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ],
-            );
-          },
-        );
-        throw Exception('Location permission permanently denied');
+        setState(() {
+          _error = 'Location permissions are permanently denied. Please enable them in settings.';
+          _isLoading = false;
+        });
+        return;
       }
 
-      // Try to get current position with a timeout
-      Position? position;
-      try {
-        position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 10),
-        );
-      } catch (timeoutError) {
-        print('Timeout getting current position: $timeoutError');
-        
-        // Try to get last known position as fallback
-        position = await Geolocator.getLastKnownPosition();
-        if (position == null) {
-          throw Exception('Could not determine your location. Please try again later.');
-        }
-      }
-      
-      print('Got position: ${position.latitude}, ${position.longitude}');
-      
+      // Get current position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+      );
+
       setState(() {
         _currentPosition = position;
         _isLoading = false;
       });
-      
-      // Create a sample route for testing
-      await _createSampleRoute();
-      
+
+      // If map is already created, update the marker and center the map
+      if (_mapController != null) {
+        await _updateDriverMarker();
+        await _centerOnCurrentLocation();
+      }
     } catch (e) {
-      print('Error initializing location: $e');
       setState(() {
-        _error = e.toString();
+        _error = 'Error getting location: $e';
         _isLoading = false;
       });
-      
-      // Show error to user
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error getting location: $e')),
-      );
     }
   }
-  
+
+  void _showLocationServiceDisabledDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Location Services Disabled'),
+        content: const Text('Please enable location services in your device settings'),
+        actions: [
+          TextButton(
+            child: const Text('Open Settings'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              Geolocator.openLocationSettings();
+            },
+          ),
+          TextButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLocationPermissionRequiredDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Location Permission Required'),
+        content: const Text('Please enable location permissions in app settings'),
+        actions: [
+          TextButton(
+            child: const Text('Open Settings'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              Geolocator.openAppSettings();
+            },
+          ),
+          TextButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _createSampleRoute() async {
     if (_currentPosition == null) return;
 
-    // Create a sample route that goes in a square around the current position
     final currentLat = _currentPosition!.latitude;
     final currentLng = _currentPosition!.longitude;
-    const offset = 0.001; // About 100 meters
+    const offset = 0.001;
     
     setState(() {
       _routePoints = [
-        latlong2.LatLng(currentLat, currentLng), // Start point
-        latlong2.LatLng(currentLat + offset, currentLng), // North
-        latlong2.LatLng(currentLat + offset, currentLng + offset), // Northeast
-        latlong2.LatLng(currentLat, currentLng + offset), // East
-        latlong2.LatLng(currentLat - offset, currentLng + offset), // Southeast
-        latlong2.LatLng(currentLat - offset, currentLng), // South
-        latlong2.LatLng(currentLat - offset, currentLng - offset), // Southwest
-        latlong2.LatLng(currentLat, currentLng - offset), // West
-        latlong2.LatLng(currentLat + offset, currentLng - offset), // Northwest
-        latlong2.LatLng(currentLat, currentLng), // Back to start
+        latlong2.LatLng(currentLat, currentLng),
+        latlong2.LatLng(currentLat + offset, currentLng),
+        latlong2.LatLng(currentLat + offset, currentLng + offset),
+        latlong2.LatLng(currentLat, currentLng + offset),
+        latlong2.LatLng(currentLat - offset, currentLng + offset),
+        latlong2.LatLng(currentLat - offset, currentLng),
+        latlong2.LatLng(currentLat - offset, currentLng - offset),
+        latlong2.LatLng(currentLat, currentLng - offset),
+        latlong2.LatLng(currentLat + offset, currentLng - offset),
+        latlong2.LatLng(currentLat, currentLng),
       ];
     });
 
-    // Update the route display
     await _updateRouteDisplay();
   }
-  
-  void _onMapCreated(dynamic controller) {
-  if (controller is MaplibreMapController) {
-    print("Map controller created");
-    
-    setState(() {
-      _mapController = controller;
-      _isLoading = false; // Map is now loaded
-    });
-    
-    // Set up symbol tap handler
-    _mapController!.onSymbolTapped.add(_onSymbolTapped);
-    
-    // Since onStyleLoadedCallback isn't available, we'll handle initialization here
-    // Wait briefly to ensure the map is fully initialized
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_currentPosition != null) {
-        _updateDriverMarker();
-        _centerOnCurrentLocation(); // Center on current location when map is ready
-      } else {
-        // If we don't have a position yet, try to get one
-        _initializeLocation().then((_) {
-          if (_currentPosition != null) {
-            _updateDriverMarker();
-            _centerOnCurrentLocation();
-          }
-        });
-      }
-    });
-    
-    _startLocationUpdates();
-  } else {
-    print("Controller is not MaplibreMapController: $controller");
-  }
-}
-  
-  Future<void> _updateDriverMarker() async {
-    if (_mapController == null || _currentPosition == null) {
-      print("Cannot update driver marker: controller or position is null");
-      return;
+
+  void _onMapCreated(dynamic controller) async {
+    if (controller is MaplibreMapController) {
+      setState(() {
+        _mapController = controller;
+        _isLoading = false;
+      });
+      
+      _mapController!.onSymbolTapped.add(_onSymbolTapped);
+
+      // Add default marker icons
+      await _addMapIcons();
+      
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_currentPosition != null) {
+          _updateDriverMarker();
+          _centerOnCurrentLocation();
+        } else {
+          _initializeLocation().then((_) {
+            if (_currentPosition != null) {
+              _updateDriverMarker();
+              _centerOnCurrentLocation();
+            }
+          });
+        }
+      });
+      
+      _startLocationUpdates();
     }
+  }
+
+  Future<void> _addMapIcons() async {
+    try {
+      // Add marker icon
+      await _mapController!.addImage(
+        "marker",
+        await _loadIconImage('assets/images/marker.png'),
+      );
+      
+      // Add destination marker icon
+      await _mapController!.addImage(
+        "marker-end",
+        await _loadIconImage('assets/images/destination_marker.png'),
+      );
+      
+      // Add bus icon
+      await _mapController!.addImage(
+        "bus-icon",
+        await _loadIconImage('assets/images/bus_icon.png'),
+      );
+      } catch (e) {
+      print('Error loading map icons: $e');
+    }
+  }
+
+  Future<Uint8List> _loadIconImage(String assetPath) async {
+    // For testing, create a simple colored circle as a fallback icon
+    if (!await _assetExists(assetPath)) {
+      return await _createFallbackIcon();
+    }
+    
+    final ByteData bytes = await rootBundle.load(assetPath);
+    return bytes.buffer.asUint8List();
+  }
+
+  Future<bool> _assetExists(String assetPath) async {
+    try {
+      await rootBundle.load(assetPath);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Uint8List> _createFallbackIcon() async {
+    final recorder = PictureRecorder();
+    final canvas = Canvas(recorder);
+    final size = 32.0;
+    final radius = size / 2;
+    
+    final paint = Paint()
+      ..color = Colors.blue
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(Offset(radius, radius), radius, paint);
+    
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await img.toByteData(format: ImageByteFormat.png);
+    
+    return byteData!.buffer.asUint8List();
+  }
+
+  Future<void> _updateDriverMarker() async {
+    if (_mapController == null || _currentPosition == null) return;
 
     try {
-      // Check if map is ready
-      bool isMapReady = true;
-      try {
-        // Try a simple operation to see if the map is ready
-        await _mapController!.getVisibleRegion();
-      } catch (e) {
-        print("Map is not ready yet: $e");
-        isMapReady = false;
+      // Remove any existing bus icon
+      if (_busIconId != null) {
+        await _mapController!.removeSymbol(_busIconId!);
+        _busIconId = null;
       }
       
-      if (!isMapReady) {
-        print("Map is not ready, will try again later");
-        // Try again after a short delay
-        Future.delayed(const Duration(seconds: 1), () => _updateDriverMarker());
-        return;
-      }
-      
-      if (_driverMarker != null) {
-        await _mapController!.removeSymbol(_driverMarker!);
-        _symbols.remove(_driverMarker);
-      }
-      
-      // Remove previous circle if it exists
-      if (_locationCircle != null) {
-        await _mapController!.removeCircle(_locationCircle!);
-      }
-      
-      // Add a circle to highlight the current position
-      _locationCircle = await _mapController!.addCircle(
-        CircleOptions(
-          geometry: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-          circleColor: '#4285F4', // Google Maps blue
-          circleOpacity: 0.3,
-          circleRadius: _pulseRadius, // Use the pulse radius for animation
-          circleStrokeColor: '#4285F4',
-          circleStrokeWidth: 2.0,
-        ),
-      );
-      
-      // Then add the driver marker
-      _driverMarker = await _mapController!.addSymbol(
-        SymbolOptions(
-          geometry: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-          iconImage: 'bus',
-          iconSize: 1.2, // Slightly larger for better visibility
-          textField: _driverId ?? 'Driver',
-          textOffset: const Offset(0, 1.5),
-          textColor: '#0277BD', // Dark blue for better visibility
-          textSize: 14.0,
-          textHaloColor: '#FFFFFF', // White halo for better contrast
-          textHaloWidth: 1.0,
-        ),
-        {
-          'type': 'driver',
-          'id': _driverId ?? 'driver',
-        },
-      );
-      
-      _symbols.add(_driverMarker!);
+      // Add new bus icon at current position
+      _addBusIcon(latlong2.LatLng(_currentPosition!.latitude, _currentPosition!.longitude));
 
-      // Center map on driver's position if no destination is set
+      // Center map if no destination
       if (_destinationPosition == null) {
         await _mapController!.animateCamera(
           CameraUpdate.newLatLngZoom(
@@ -391,38 +557,70 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       print('Error updating driver marker: $e');
     }
   }
-  
+
+  Future<void> _addBusIcon(latlong2.LatLng position) async {
+    if (_mapController == null) return;
+    try {
+      // Remove existing bus icon if any
+      if (_busIconId != null) {
+        await _mapController!.removeSymbol(_busIconId!);
+      }
+      
+      // Add new bus icon with initial rotation
+      _busIconId = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: LatLng(position.latitude, position.longitude),
+          iconImage: "bus-icon",
+          iconSize: 1.2,
+          iconRotate: 0.0,
+          textField: 'Bus',
+          textOffset: const Offset(0, 1.5),
+          textColor: '#000000',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 1.0,
+          iconAnchor: "bottom",
+        ),
+        {'type': 'bus'},
+      );
+    } catch (e) {
+      print('Error adding bus icon: $e');
+    }
+  }
+
   void _startLocationUpdates() {
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = Timer.periodic(
-      const Duration(seconds: 3), // More frequent updates for better tracking
+      const Duration(seconds: 3),
       (_) => _updateLocation(),
     );
-    
-    // Immediately update location
     _updateLocation();
   }
-  
+
   Future<void> _updateLocation() async {
     try {
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: const Duration(seconds: 5),
       );
       
       if (mounted) {
-        setState(() => _currentPosition = position);
-        print("Location updated: ${position.latitude}, ${position.longitude}");
-        
+        setState(() {
+          _currentPosition = position;
+          _currentSpeed = position.speed >= 0 ? position.speed : 0.0; // Update speed
+        });
         await _updateDriverMarker();
-        if (_destinationPosition != null) {
+        
+        // Only update camera if user hasn't interacted recently and we're not in active navigation
+        final now = DateTime.now();
+        final shouldUpdateCamera = _lastUserInteraction == null || 
+            now.difference(_lastUserInteraction!) > const Duration(seconds: 30);
+            
+        if (_destinationPosition != null && !_userInteractingWithMap && shouldUpdateCamera) {
           await _updateRouteLine();
         }
       }
     } catch (e) {
       print('Error updating location: $e');
-      
-      // Try to get last known position as fallback
       try {
         final position = await Geolocator.getLastKnownPosition();
         if (position != null && mounted) {
@@ -434,218 +632,133 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       }
     }
   }
-  
+
+  // Track if we've already shown the location message
+  bool _hasShownLocationMessage = false;
+
   Future<void> _centerOnCurrentLocation() async {
-    // Show loading indicator
+    // Only show the "Getting location" message if it's the first time
+    if (!_hasShownLocationMessage) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Getting your current location...'),
-        duration: Duration(seconds: 1),
-      ),
+        const SnackBar(
+          content: Text('Getting your current location...'),
+          duration: Duration(seconds: 2),
+        ),
     );
+      _hasShownLocationMessage = true;
+    }
     
     try {
-      // First check if location services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        // Show dialog to prompt user to enable location services
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: const Text('Location Services Disabled'),
-              content: const Text(
-                'Location services are disabled. Please enable location services in your device settings to use this feature.'
-              ),
-              actions: <Widget>[
-                TextButton(
-                  child: const Text('Open Settings'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Geolocator.openLocationSettings();
-                  },
-                ),
-                TextButton(
-                  child: const Text('Cancel'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ],
-            );
-          },
-        );
-        throw Exception('Location services are disabled');
+        _showLocationServiceDisabledDialog();
+        return;
       }
-      // First try to get the most up-to-date position
+
       Position? position;
       try {
-        // Request a high-accuracy position with a reasonable timeout
         position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.bestForNavigation, // Use highest accuracy
-          timeLimit: const Duration(seconds: 10),
+          desiredAccuracy: LocationAccuracy.bestForNavigation,
+          timeLimit: const Duration(seconds: 2),
         );
-        
-        setState(() => _currentPosition = position);
-        print("Got current position: ${position.latitude}, ${position.longitude}");
       } catch (e) {
-        print('Could not get current position: $e');
-        // Try to get last known position if current position fails
-        try {
-          position = await Geolocator.getLastKnownPosition();
-          if (position != null) {
-            setState(() => _currentPosition = position);
-            print("Using last known position: ${position.latitude}, ${position.longitude}");
-          }
-        } catch (e2) {
-          print('Could not get last known position: $e2');
-        }
-        
-        // If we still don't have a position
-        if (_currentPosition == null) {
+        position = await Geolocator.getLastKnownPosition();
+        if (position == null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Unable to determine your location. Please check your location permissions.')),
+            const SnackBar(
+              content: Text('Unable to determine your location'),
+              backgroundColor: Colors.red,
+            ),
           );
           return;
         }
       }
+
+      setState(() => _currentPosition = position);
       
-      // If map controller is not ready, wait for it
       if (_mapController == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Map is initializing. Please try again in a moment.')),
+          const SnackBar(
+            content: Text('Map is initializing'),
+            backgroundColor: Colors.orange,
+          ),
         );
         return;
       }
-      
-      // Check if map is ready
-      bool isMapReady = true;
+
       try {
-        // Try a simple operation to see if the map is ready
         await _mapController!.getVisibleRegion();
       } catch (e) {
-        print("Map is not ready yet: $e");
-        isMapReady = false;
-      }
-      
-      if (!isMapReady) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Map is still loading. Trying again in a moment...')),
-        );
-        
-        // Try again after a short delay
         Future.delayed(const Duration(seconds: 2), () {
           _centerOnCurrentLocation();
         });
         return;
       }
-      
-      // Update the driver marker with the current position
+
       await _updateDriverMarker();
-      
-      // Animate the camera to the current position with a higher zoom level for better visibility
       await _mapController!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-          17.0, // Higher zoom level for better visibility
+          17.0,
         ),
       );
-      
-      // Show a confirmation to the user
+
+      // Show a one-time message that you're at your current location
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Centered on your current location'),
+          content: Text('You are at your current location'),
+          backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ),
       );
     } catch (e) {
-      print('Error centering on current location: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error centering on current location: $e')),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
-  
+
   Future<void> _updateRouteLine() async {
-    if (_mapController == null || _currentPosition == null || _destinationPosition == null) return;
+  if (_mapController == null || _routePoints.isEmpty) return;
 
     try {
       if (_routeLine != null) {
         await _mapController!.removeLine(_routeLine!);
       }
 
+    final routeLatLngs = _routePoints.map((point) =>
+      LatLng(point.latitude, point.longitude)).toList();
+
       _routeLine = await _mapController!.addLine(
         LineOptions(
-          geometry: [
-            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-            _destinationPosition!,
-          ],
-          lineColor: "#4CAF50",
-          lineWidth: 3.0,
-        ),
-      );
+        geometry: routeLatLngs,
+        lineColor: "#2196F3", // Blue color
+        lineWidth: 4.0,
+        lineOpacity: 0.8,
+      ),
+    );
 
-      // Adjust camera to show both points
-      await _mapController!.animateCamera(
-        CameraUpdate.newLatLngBounds(
-          LatLngBounds(
-            southwest: LatLng(
-              _currentPosition!.latitude < _destinationPosition!.latitude
-                  ? _currentPosition!.latitude
-                  : _destinationPosition!.latitude,
-              _currentPosition!.longitude < _destinationPosition!.longitude
-                  ? _currentPosition!.longitude
-                  : _destinationPosition!.longitude,
-            ),
-            northeast: LatLng(
-              _currentPosition!.latitude > _destinationPosition!.latitude
-                  ? _currentPosition!.latitude
-                  : _destinationPosition!.latitude,
-              _currentPosition!.longitude > _destinationPosition!.longitude
-                  ? _currentPosition!.longitude
-                  : _destinationPosition!.longitude,
-            ),
-          ),
-          left: 50,
-          right: 50,
-          top: 50,
-          bottom: 50,
-        ),
-      );
+    await _fitMapToRoute(routeLatLngs);
     } catch (e) {
       print('Error updating route line: $e');
     }
   }
-  
-  void _onMapClick(latlong2.LatLng coordinates) async {
-    // Convert latlong2.LatLng to maplibre_gl.LatLng
-    final maplibreCoordinates = LatLng(coordinates.latitude, coordinates.longitude);
-    
-    // Use the selectDestination method to handle the click
-    _selectDestination(maplibreCoordinates);
-  }
-  
+
+
   void _onSymbolTapped(Symbol symbol) {
-    // Handle symbol tap
     if (symbol.data != null) {
       final data = symbol.data!;
-      
-      if (data.containsKey('type')) {
-        if (data['type'] == 'search_result') {
-          // Handle search result tap
-          final lat = data['latitude'] as double;
-          final lng = data['longitude'] as double;
-          _selectDestination(LatLng(lat, lng));
-        } 
-        else if (data['type'] == 'driver') {
-          // Show current location info when tapping on driver marker
-          _showCurrentLocationInfo();
-        }
+      if (data['type'] == 'search_result') {
+        _selectDestination(LatLng(data['latitude'], data['longitude']));
+      } else if (data['type'] == 'driver') {
+        _showCurrentLocationInfo();
       }
     }
   }
-  
+
   void _showCurrentLocationInfo() {
     if (_currentPosition == null) return;
     
@@ -655,16 +768,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         title: const Text('Current Location'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Latitude: ${_currentPosition!.latitude.toStringAsFixed(6)}'),
             Text('Longitude: ${_currentPosition!.longitude.toStringAsFixed(6)}'),
-            Text('Altitude: ${_currentPosition!.altitude.toStringAsFixed(2)} m'),
-            Text('Speed: ${_currentPosition!.speed.toStringAsFixed(2)} m/s'),
-            Text('Heading: ${_currentPosition!.heading.toStringAsFixed(2)}°'),
-            Text('Accuracy: ${_currentPosition!.accuracy.toStringAsFixed(2)} m'),
             const SizedBox(height: 16),
-            const Text('Tap the "My Location" button to center the map on your current location.'),
+            const Text('Tap the location button to center the map'),
           ],
         ),
         actions: [
@@ -683,13 +791,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       ),
     );
   }
-  
-  void _onMapLongClick(LatLng latLng) {
-    // Handle map long click
-    print('Map long clicked at: ${latLng.latitude}, ${latLng.longitude}');
-    _selectDestination(latLng);
-  }
-  
+
   Future<void> _searchLocation(String query) async {
     if (query.isEmpty) {
       setState(() {
@@ -702,93 +804,127 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     setState(() => _isSearching = true);
     
     try {
-      // Use MapTiler Geocoding API
-      final apiKey = dotenv.env['MAPTILER_API_KEY'] ?? '';
-      final url = 'https://api.maptiler.com/geocoding/$query.json?key=$apiKey';
+      // Use OpenStreetMap's Nominatim service for searching
+      final encodedQuery = Uri.encodeComponent(query);
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/search?q=$encodedQuery&format=json&countrycodes=in&limit=10&addressdetails=1'
+      );
       
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(
+        url,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'CampusRide/1.0',
+        }
+      );
+      
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final features = data['features'] as List;
+        final List<dynamic> data = json.decode(response.body);
+        
+        if (data.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No results found. Try a different search term.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        setState(() {
+            _searchResults = [];
+            _isSearching = false;
+          });
+          return;
+        }
         
         setState(() {
-          _searchResults = features.map((feature) {
-            final coordinates = feature['geometry']['coordinates'] as List;
+          _searchResults = data.map((place) {
+            final address = place['address'] as Map<String, dynamic>;
+            final city = address['city'] ?? address['town'] ?? address['village'] ?? '';
+            final state = address['state'] ?? '';
+            final displayName = [
+              place['name'] ?? '',
+              city,
+              state,
+            ].where((s) => s.isNotEmpty).join(', ');
+
             return {
-              'name': feature['place_name'],
-              'latitude': coordinates[1],
-              'longitude': coordinates[0],
+              'name': displayName,
+              'full_address': place['display_name'] as String,
+              'latitude': double.parse(place['lat']),
+              'longitude': double.parse(place['lon']),
+              'type': place['type'] ?? 'place',
+              'city': city,
+              'state': state,
             };
           }).toList();
           _isSearching = false;
         });
         
-        // Show search results on map
-        _showSearchResultsOnMap();
+        // Show the results on the map
+        await _showSearchResultsOnMap();
       } else {
-        setState(() => _isSearching = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to search location: ${response.statusCode}')),
-        );
+        throw Exception('Failed to search location');
       }
     } catch (e) {
-      setState(() => _isSearching = false);
+      print('Search error: $e');
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+      });
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error searching location: $e')),
+        const SnackBar(
+          content: Text('Error searching location. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
-  
+
   Future<void> _showSearchResultsOnMap() async {
-    if (_mapController == null) return;
+    if (_mapController == null || _searchResults.isEmpty) return;
     
-    // Clear previous search result markers
+    try {
     await _clearSearchResultMarkers();
     
-    // Add markers for search results
+      // Don't adjust the map view during search - just add markers
     for (final result in _searchResults) {
       final marker = await _mapController!.addSymbol(
         SymbolOptions(
-          geometry: LatLng(result['latitude'], result['longitude']),
+            geometry: LatLng(
+              result['latitude'] as double,
+              result['longitude'] as double
+            ),
           iconImage: 'marker',
           iconSize: 1.0,
-          textField: result['name'],
+            textField: result['name'] as String,
           textOffset: const Offset(0, 1.5),
-          iconColor: Colors.blue.toHexStringRGB(),
+            textColor: '#000000',
+            textHaloColor: '#FFFFFF',
+            textHaloWidth: 1.0,
         ),
         {
           'type': 'search_result',
           'latitude': result['latitude'],
           'longitude': result['longitude'],
+            'name': result['name'],
         },
       );
-      
       _symbols.add(marker);
     }
     
-    // If we have results, fit the map to show all of them
-    if (_searchResults.isNotEmpty) {
-      final points = _searchResults.map((result) => 
-        LatLng(result['latitude'], result['longitude'])).toList();
+      // We're not adjusting the map view during search anymore
+      // This prevents the distracting zooming in and out
       
-      // Add current location to the points if available
-      if (_currentPosition != null) {
-        points.add(LatLng(_currentPosition!.latitude, _currentPosition!.longitude));
-      }
-      
-      await _fitMapToBounds(points);
+    } catch (e) {
+      print('Error showing search results on map: $e');
     }
   }
-  
+
   Future<void> _clearSearchResultMarkers() async {
     if (_mapController == null) return;
     
     final symbolsToRemove = _symbols.where((symbol) {
-      if (symbol.data != null) {
-        final data = symbol.data!;
-        return data.containsKey('type') && data['type'] == 'search_result';
-      }
-      return false;
+      return symbol.data != null && symbol.data!['type'] == 'search_result';
     }).toList();
     
     for (final symbol in symbolsToRemove) {
@@ -796,150 +932,374 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _symbols.remove(symbol);
     }
   }
-  
+
   Future<void> _fitMapToBounds(List<LatLng> points) async {
     if (_mapController == null || points.isEmpty) return;
     
     try {
-      // Calculate bounds manually
       double minLat = points[0].latitude;
       double maxLat = points[0].latitude;
       double minLng = points[0].longitude;
       double maxLng = points[0].longitude;
       
       for (final point in points) {
-        minLat = minLat < point.latitude ? minLat : point.latitude;
-        maxLat = maxLat > point.latitude ? maxLat : point.latitude;
-        minLng = minLng < point.longitude ? minLng : point.longitude;
-        maxLng = maxLng > point.longitude ? maxLng : point.longitude;
+        minLat = min(minLat, point.latitude);
+        maxLat = max(maxLat, point.latitude);
+        minLng = min(minLng, point.longitude);
+        minLng = max(maxLng, point.longitude);
       }
-      
-      final bounds = LatLngBounds(
-        southwest: LatLng(minLat, minLng),
-        northeast: LatLng(maxLat, maxLng),
-      );
       
       await _mapController!.animateCamera(
         CameraUpdate.newLatLngBounds(
-          bounds,
-          top: 50,
-          right: 50,
-          bottom: 50,
-          left: 50,
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          top: 50, right: 50, bottom: 50, left: 50,
         ),
       );
     } catch (e) {
       print('Error fitting map to bounds: $e');
     }
   }
-  
-  void _selectDestination(LatLng coordinates) async {
-    if (_driverId == null) {
+
+  Future<void> _selectDestination(LatLng coordinates) async {
+    if (_mapController == null || _currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your driver ID first')),
+        const SnackBar(
+          content: Text('Please wait for map and location to initialize'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
 
-    // Set destination marker
-    if (_destinationMarker != null) {
-      await _mapController?.removeSymbol(_destinationMarker!);
-      _symbols.remove(_destinationMarker);
-    }
+    setState(() => _isLoading = true);
 
-    _destinationMarker = await _mapController?.addSymbol(
-      SymbolOptions(
-        geometry: coordinates,
-        iconImage: 'marker-end',
-        iconSize: 1.0,
-        textField: 'Destination',
-        textOffset: const Offset(0, 1.5),
-      ),
-      {
-        'type': 'destination',
-      },
-    );
-    
-    if (_destinationMarker != null) {
-      _symbols.add(_destinationMarker!);
-    }
+    try {
+      // Clear existing route and markers
+      await _clearExistingRoute();
 
-    setState(() => _destinationPosition = coordinates);
-    await _updateRouteLine();
-    
-    // Clear search results
-    setState(() {
-      _searchResults = [];
-      _searchController.clear();
-    });
-    await _clearSearchResultMarkers();
-  }
-  
-  void _stopLocationUpdates() {
-    _locationUpdateTimer?.cancel();
-    setState(() {
-      _isTracking = false;
-    });
-  }
-  
-  void _updateRouteCompletion(latlong2.LatLng currentPosition) {
-    if (_routePoints.isEmpty) return;
-    
-    // Find closest point on route
-    int closestPointIndex = 0;
-    double minDistance = double.infinity;
-    
-    for (int i = 0; i < _routePoints.length; i++) {
-      final point = _routePoints[i];
-      final distance = _calculateDistance(currentPosition, point);
+      // Add destination marker
+      _destinationMarker = await _mapController?.addSymbol(
+        SymbolOptions(
+          geometry: coordinates,
+          iconImage: 'marker',
+          iconSize: 1.2,
+          textField: 'Destination',
+          textOffset: const Offset(0, 1.5),
+          textColor: '#2196F3',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 1.0,
+          iconAnchor: "bottom",
+        ),
+      );
       
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestPointIndex = i;
+      if (_destinationMarker != null) {
+        _symbols.add(_destinationMarker!);
+      }
+
+      setState(() => _destinationPosition = coordinates);
+
+      // Calculate and display route
+      await _calculateRoute(coordinates);
+
+      // Clear search results after selecting destination
+      setState(() {
+        _searchResults = [];
+        _searchController.clear();
+      });
+      await _clearSearchResultMarkers();
+
+    } catch (e) {
+      print('Error selecting destination: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error selecting destination. Please try again.'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+
+    // Update map zoom after setting destination
+    await _updateMapZoom();
+
+    // After showing the route, zoom in to the live location at 100m (zoom level 18)
+    if (_currentPosition != null && _mapController != null) {
+      Future.delayed(const Duration(seconds: 2), () async {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+            MapConstants.liveLocationZoom,
+          ),
+        );
+      });
+    }
+  }
+
+  Future<void> _clearExistingRoute() async {
+    try {
+      // Remove existing destination marker
+      if (_destinationMarker != null) {
+        await _mapController?.removeSymbol(_destinationMarker!);
+        _symbols.remove(_destinationMarker);
+        _destinationMarker = null;
+      }
+
+      // Remove existing start marker
+      if (_startMarker != null) {
+        await _mapController?.removeSymbol(_startMarker!);
+        _symbols.remove(_startMarker);
+        _startMarker = null;
+      }
+
+      // Remove existing end marker
+      if (_endMarker != null) {
+        await _mapController?.removeSymbol(_endMarker!);
+        _symbols.remove(_endMarker);
+        _endMarker = null;
+      }
+
+      // Remove existing route line
+      if (_routeLine != null) {
+        await _mapController?.removeLine(_routeLine!);
+        _routeLine = null;
+      }
+
+      // Remove completed route line if exists
+      if (_completedRouteLine != null) {
+        await _mapController!.removeLine(_completedRouteLine!);
+        _completedRouteLine = null;
+      }
+
+      _routePoints.clear();
+      _completedPoints.clear();
+      _completion = 0.0;
+      
+      setState(() {
+        _destinationPosition = null;
+        _hasReachedDestination = false;
+      });
+    } catch (e) {
+      print('Error clearing route: $e');
+    }
+  }
+
+  Future<void> _calculateRoute(LatLng destination) async {
+    if (_currentPosition == null) {
+      print('DEBUG: Current position is null');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Current location not available. Please wait.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await _clearExistingRoute();
+      
+      // Create start and destination points
+      final start = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+      
+      final requestBody = {
+        'coordinates': [
+          [start.longitude, start.latitude],
+          [destination.longitude, destination.latitude]
+        ],
+        'preference': 'shortest',
+        'instructions': false,
+        'units': 'km',
+        'geometry_simplify': false,
+        'continue_straight': true
+      };
+
+        final orsApiKey = dotenv.env['ORS_API_KEY'] ?? '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
+        
+        final response = await http.post(
+        Uri.parse('https://api.openrouteservice.org/v2/directions/driving-car/geojson'),
+          headers: {
+            'Authorization': orsApiKey,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Accept': 'application/json, application/geo+json'
+        },
+        body: json.encode(requestBody)
+        );
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+        
+        if (data['features'] != null && 
+            data['features'].isNotEmpty && 
+            data['features'][0]['geometry'] != null) {
+          
+          final coordinates = data['features'][0]['geometry']['coordinates'] as List;
+          List<LatLng> routePoints = coordinates.map((coord) {
+            return LatLng(coord[1] as double, coord[0] as double);
+          }).toList();
+
+          // Ensure the route includes start and end points exactly
+          if (!routePoints.contains(start)) {
+            routePoints.insert(0, start);
+          }
+          if (!routePoints.contains(destination)) {
+            routePoints.add(destination);
+          }
+
+          // Update the route points in state
+          setState(() {
+            _routePoints = routePoints.map((point) => 
+              latlong2.LatLng(point.latitude, point.longitude)).toList();
+            _destinationPosition = destination;
+          });
+
+          // Remove existing route line if any
+          if (_routeLine != null) {
+            await _mapController?.removeLine(_routeLine!);
+          }
+
+          // Draw the route line
+          _routeLine = await _mapController?.addLine(
+            LineOptions(
+              geometry: routePoints,
+              lineColor: "#4285F4",
+              lineWidth: 6.0,
+              lineOpacity: 0.9,
+            ),
+          );
+
+          // Add destination marker
+          _destinationMarker = await _mapController?.addSymbol(
+            SymbolOptions(
+              geometry: destination,
+              iconImage: 'marker-end',
+              iconSize: 1.2,
+              textField: 'Destination',
+              textOffset: const Offset(0, 1.5),
+              textColor: '#4285F4',
+              textHaloColor: '#FFFFFF',
+              textHaloWidth: 1.5,
+              iconAnchor: "bottom",
+            ),
+          );
+
+          if (_destinationMarker != null) {
+            _symbols.add(_destinationMarker!);
+          }
+
+          // Update ETA and distance
+          _updateETAAndDistance();
+
+          // Fit map to show the entire route with padding
+          await _fitMapToRoute(routePoints);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Route calculated successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        } else {
+          throw Exception('Failed to calculate route: ${response.statusCode}');
+        }
+    } catch (e) {
+      print('DEBUG: Route calculation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error calculating route: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _fitMapToRoute(List<LatLng> routePoints) async {
+    if (routePoints.isEmpty) return;
+
+    try {
+      // Add padding to the bounds calculation
+      const padding = 0.0002; // Roughly 20-30 meters
+      
+      // Calculate bounds with padding
+      final bounds = LatLngBounds(
+        southwest: LatLng(
+          routePoints.map((p) => p.latitude).reduce(min) - padding,
+          routePoints.map((p) => p.longitude).reduce(min) - padding,
+        ),
+        northeast: LatLng(
+          routePoints.map((p) => p.latitude).reduce(max) + padding,
+          routePoints.map((p) => p.longitude).reduce(max) + padding,
+        ),
+      );
+
+      // Animate camera to show the entire route with padding
+      await _mapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          bounds,
+          left: 50, right: 50, top: 150, bottom: 150,
+        ),
+      );
+    } catch (e) {
+      print('Error fitting map to route: $e');
+      
+      // Fallback to a simpler approach if the bounds calculation fails
+      try {
+        if (routePoints.length >= 2) {
+          final start = routePoints.first;
+          final end = routePoints.last;
+          final center = LatLng(
+            (start.latitude + end.latitude) / 2,
+            (start.longitude + end.longitude) / 2,
+          );
+          
+          await _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(center, 15),
+          );
+        }
+      } catch (fallbackError) {
+        print('Error in fallback map fitting: $fallbackError');
       }
     }
-    
-    // Update completed points
-    setState(() {
-      _completedPoints = _routePoints.sublist(0, closestPointIndex + 1);
-      _completion = closestPointIndex / _routePoints.length;
-    });
-    
-    _updateRouteDisplay();
   }
-  
-  double _calculateDistance(latlong2.LatLng point1, latlong2.LatLng point2) {
-    return LocationUtils.calculateDistance(point1, point2);
+
+  void _stopLocationUpdates() {
+    _locationUpdateTimer?.cancel();
+    setState(() => _isTracking = false);
   }
-  
+
   Future<void> _updateRouteDisplay() async {
     if (_routePoints.isEmpty || _mapController == null) return;
     
     try {
-      // Remove existing route lines if they exist
-      if (_routeLine != null) {
-        await _mapController!.removeLine(_routeLine!);
-      }
+      // Clear existing routes
+      if (_routeLine != null) await _mapController!.removeLine(_routeLine!);
+      if (_completedRouteLine != null) await _mapController!.removeLine(_completedRouteLine!);
       
-      if (_completedRouteLine != null) {
-        await _mapController!.removeLine(_completedRouteLine!);
-      }
-      
-      // Convert route points to MapLibre LatLng
       final routeLatLngs = _routePoints.map((point) => 
         LatLng(point.latitude, point.longitude)).toList();
       
-      // Add full route polyline
+      // Draw the main route in blue
       _routeLine = await _mapController!.addLine(
         LineOptions(
           geometry: routeLatLngs,
-          lineColor: "#9E9E9E",
+          lineColor: "#2196F3", // Material Blue color
           lineWidth: 5.0,
-          lineOpacity: 0.7,
+          lineOpacity: 0.8,
+          draggable: false,
         ),
       );
       
-      // Add completed route polyline if there are completed points
       if (_completedPoints.isNotEmpty) {
         final completedLatLngs = _completedPoints.map((point) => 
           LatLng(point.latitude, point.longitude)).toList();
@@ -947,52 +1307,89 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         _completedRouteLine = await _mapController!.addLine(
           LineOptions(
             geometry: completedLatLngs,
-            lineColor: "#4CAF50",
+            lineColor: "#64B5F6", // Lighter blue for completed route
             lineWidth: 5.0,
             lineOpacity: 1.0,
+            draggable: false,
           ),
         );
       }
       
-      // Add markers for route start and end if they don't exist
-      if (_startMarker == null && _routePoints.isNotEmpty) {
+      // Update route markers
+      await _updateRouteMarkers();
+    } catch (e) {
+      print('Error updating route display: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating route display: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _updateRouteMarkers() async {
+    if (_routePoints.isEmpty || _mapController == null) return;
+    
+    try {
+      // Remove existing route markers
+      if (_startMarker != null) {
+        await _mapController!.removeSymbol(_startMarker!);
+        _symbols.remove(_startMarker);
+        _startMarker = null;
+      }
+      if (_endMarker != null) {
+        await _mapController!.removeSymbol(_endMarker!);
+        _symbols.remove(_endMarker);
+        _endMarker = null;
+      }
+
+      // Add start marker
         _startMarker = await _mapController!.addSymbol(
           SymbolOptions(
             geometry: LatLng(_routePoints.first.latitude, _routePoints.first.longitude),
-            iconImage: "marker-start",
-            iconSize: 1.0,
+          iconImage: "marker",
+          iconSize: 1.2,
             textField: "Start",
             textOffset: const Offset(0, 1.5),
+          textColor: "#2196F3",
+          textHaloColor: "#FFFFFF",
+          textHaloWidth: 1.0,
+          iconAnchor: "bottom",
           ),
-          {
-            'type': 'route_start',
-          },
         );
         _symbols.add(_startMarker!);
-      }
       
-      if (_endMarker == null && _routePoints.isNotEmpty) {
+      // Add end marker
         _endMarker = await _mapController!.addSymbol(
           SymbolOptions(
             geometry: LatLng(_routePoints.last.latitude, _routePoints.last.longitude),
-            iconImage: "marker-end",
-            iconSize: 1.0,
-            textField: "End",
+          iconImage: "marker",
+          iconSize: 1.2,
+          textField: "Destination",
             textOffset: const Offset(0, 1.5),
+          textColor: "#2196F3",
+          textHaloColor: "#FFFFFF",
+          textHaloWidth: 1.0,
+          iconAnchor: "bottom",
           ),
-          {
-            'type': 'route_end',
-          },
         );
         _symbols.add(_endMarker!);
-      }
+
     } catch (e) {
-      print('Error updating route display: $e');
+      print('Error updating route markers: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating route markers: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
-  
-  Future<void> _startTrip() async {
-    // If driver ID is not set, prompt for it
+
+  void _startTrip() async {
     if (_driverId == null) {
       final driverId = await showDialog<String>(
         context: context,
@@ -1003,313 +1400,1368 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (driverId != null && driverId.isNotEmpty) {
         setState(() => _driverId = driverId);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Welcome driver $driverId! Tap on the map to set your destination.')),
+          SnackBar(content: Text('Welcome driver $driverId!')),
         );
       }
       return;
     }
     
-    // If destination is not set, prompt user to set it
     if (_destinationPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please tap on the map to set your destination first')),
+        const SnackBar(content: Text('Please set your destination first')),
       );
       return;
     }
     
-    // Start the trip
+    // Check if location services are enabled and we have permission
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location services are disabled. Please enable them to start the trip.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      _showLocationServiceDisabledDialog();
+      return;
+    }
+    
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location permissions are denied. Cannot start trip.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+    
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location permissions are permanently denied. Cannot start trip.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      _showLocationPermissionRequiredDialog();
+      return;
+    }
+    
     setState(() {
       _isTripStarted = true;
-      _isTracking = true;
+      _hasReachedDestination = false;
+      _completedPoints = [];
+      _lastVillageCheckDistance = 0.0;
+      _showVillageCrossingLog = false;
+      _shouldAutoZoom = true; // Enable auto-zoom when trip starts
     });
-    
-    // Start location updates more frequently for live tracking
+
+    // Add bus icon at current position
+    if (_currentPosition != null) {
+      _addBusIcon(latlong2.LatLng(_currentPosition!.latitude, _currentPosition!.longitude));
+    }
+
+    // Start real-time location tracking with higher frequency
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => _updateLocation(),
+      const Duration(seconds: 1), // More frequent updates during trip
+      (_) => _updateRealTimeLocation(),
     );
     
-    // Update UI to show trip has started
+    // Show a message to the user
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Trip started! Your location is now being tracked.')),
+      const SnackBar(
+        content: Text('Trip started! Your location will be tracked in real-time.'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 3),
+      ),
     );
   }
   
-  @override
-  Widget build(BuildContext context) {
-    // Check if we have a current position and try to get it if not
-    if (_currentPosition == null && !_isLoading && _error == null) {
-      // Try to get the location again
-      Future.delayed(Duration.zero, () {
-        _initializeLocation();
-      });
+  // Modify the _updateRealTimeLocation method to include deviation checking
+  Future<void> _updateRealTimeLocation() async {
+    if (!_isTripStarted) return;
+    
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 2),
+      );
+      
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+          _currentSpeed = position.speed >= 0 ? position.speed : 0.0; // Update speed
+        });
+        
+        // Update the bus icon position with smooth animation
+        final currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+        await _updateBusPosition(currentLocation);
+        
+        // Add this point to completed points
+        _completedPoints.add(currentLocation);
+        
+        // Update the completed route line
+        await _updateCompletedRouteLine();
+        
+        // Update ETA and distance
+        _updateETAAndDistance();
+        
+        // Check for village crossings
+        await _checkVillageCrossing(position);
+        
+        // Check for route deviation
+        if (_routePoints.isNotEmpty) {
+          final distanceTraveled = _calculateTraveledDistance();
+          if (distanceTraveled - _lastDeviationCheckDistance >= _deviationCheckInterval) {
+            _lastDeviationCheckDistance = distanceTraveled;
+            if (_hasDeviatedFromRoute(position)) {
+              await _recalculateRouteFromCurrentPosition();
+            }
+          }
+        }
+        
+        // Check if we've reached the destination
+        if (_destinationPosition != null) {
+          final distanceToDestination = Geolocator.distanceBetween(
+            position.latitude, position.longitude,
+            _destinationPosition!.latitude, _destinationPosition!.longitude,
+          );
+          
+          // If within 50 meters of destination, consider it reached
+          if (distanceToDestination < 50 && !_hasReachedDestination) {
+            setState(() => _hasReachedDestination = true);
+            
+            // Show destination reached message
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Destination reached! Trip ending automatically...'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
+              ),
+            );
+            
+            // Automatically end the trip after a short delay
+            Future.delayed(const Duration(seconds: 2), () {
+              _autoEndTrip();
+            });
+          }
+        }
+
+        // Update map zoom if auto-zoom is enabled
+        if (_shouldAutoZoom) {
+          await _updateMapZoom();
+        }
+      }
+    } catch (e) {
+      print('Error updating real-time location: $e');
+    }
+  }
+
+  // New method to automatically end the trip
+  Future<void> _autoEndTrip() async {
+    if (!_isTripStarted) return;
+    
+    // Cancel all timers
+    _locationUpdateTimer?.cancel();
+    _animationTimer?.cancel();
+    
+    // Remove all map elements
+    if (_mapController != null) {
+      try {
+        // Remove bus icon
+        if (_busIconId != null) {
+          await _mapController!.removeSymbol(_busIconId!);
+          _busIconId = null;
+        }
+        
+        // Remove route line
+        if (_routeLine != null) {
+          await _mapController!.removeLine(_routeLine!);
+          _routeLine = null;
+        }
+        
+        // Remove completed route line
+        if (_completedRouteLine != null) {
+          await _mapController!.removeLine(_completedRouteLine!);
+          _completedRouteLine = null;
+        }
+        
+        // Remove destination marker
+        if (_destinationMarker != null) {
+          await _mapController!.removeSymbol(_destinationMarker!);
+          _symbols.remove(_destinationMarker);
+          _destinationMarker = null;
+        }
+      } catch (e) {
+        print('Error cleaning up map elements: $e');
+      }
     }
     
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Getting your location...'),
-            ],
-          ),
+    // Reset all state variables
+    setState(() {
+      _isTripStarted = false;
+      _hasReachedDestination = false;
+      _completion = 0.0;
+      _routePoints.clear();
+      _completedPoints.clear();
+      _destinationPosition = null;
+      _shouldAutoZoom = false; // Disable auto-zoom when trip ends
+    });
+    
+    // Show trip summary dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Trip Completed'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('You have successfully reached your destination.'),
+            const SizedBox(height: 16),
+            Text('Total Distance: ${_estimatedDistance ?? 'N/A'}'),
+            Text('Trip Duration: ${_estimatedTime ?? 'N/A'}'),
+          ],
         ),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('Error: $_error'),
-              ElevatedButton(
-                onPressed: _initializeLocation,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Driver Dashboard'),
-      ),
-
-      body: _isLoading 
-        ? const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Getting your location...'),
-              ],
-            ),
-          )
-        : Stack(
-        children: [
-          PlatformSafeMap(
-            onMapCreated: _onMapCreated,
-            initialCameraPosition: CameraPosition(
-              target: LatLng(
-                _currentPosition?.latitude ?? 37.7749, // Default to San Francisco if location not available
-                _currentPosition?.longitude ?? -122.4194,
-              ),
-              zoom: 15.0,
-            ),
-            myLocationEnabled: true,
-            onMapClick: _onMapClick,
-          ),
-          
-          // Search bar at the top
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 4,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: 'Search for destination',
-                              border: InputBorder.none,
-                              prefixIcon: const Icon(Icons.search),
-                              suffixIcon: _searchController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear),
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() {
-                                        _searchResults = [];
-                                      });
-                                      _clearSearchResultMarkers();
-                                    },
-                                  )
-                                : null,
-                            ),
-                            onChanged: (value) {
-                              if (value.length > 2) {
-                                _searchLocation(value);
-                              } else if (value.isEmpty) {
-                                setState(() {
-                                  _searchResults = [];
-                                });
-                                _clearSearchResultMarkers();
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  // Search results
-                  if (_searchResults.isNotEmpty)
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 200),
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _searchResults.length,
-                        itemBuilder: (context, index) {
-                          final result = _searchResults[index];
-                          return ListTile(
-                            title: Text(result['name']),
-                            onTap: () {
-                              _selectDestination(LatLng(
-                                result['latitude'],
-                                result['longitude'],
-                              ));
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          
-          // Live location button - positioned at the bottom right corner, above the bottom card
-          Positioned(
-            bottom: 200,
-            right: 20,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8.0),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    spreadRadius: 2,
-                    blurRadius: 5,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _centerOnCurrentLocation,
-                  borderRadius: BorderRadius.circular(8.0),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Icon(
-                      Icons.my_location,
-                      color: Colors.blue.shade700,
-                      size: 28.0,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          
-          // Bottom card with driver info and trip controls
-          Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Driver ID: ${_driverId ?? 'Not Set'}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    if (_destinationPosition != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Destination: ${_destinationPosition!.latitude.toStringAsFixed(4)}, ${_destinationPosition!.longitude.toStringAsFixed(4)}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                    if (_currentPosition != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Current Location: ${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    if (_isTripStarted) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _isTracking = !_isTracking;
-                              });
-                              if (_isTracking) {
-                                _startLocationUpdates();
-                              } else {
-                                _stopLocationUpdates();
-                              }
-                            },
-                            icon: Icon(_isTracking ? Icons.pause : Icons.play_arrow),
-                            label: Text(_isTracking ? 'Pause' : 'Resume'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _isTracking ? Colors.orange : Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _isTripStarted = false;
-                                _isTracking = false;
-                              });
-                              _stopLocationUpdates();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Trip ended')),
-                              );
-                            },
-                            icon: const Icon(Icons.stop),
-                            label: const Text('End Trip'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ] else ...[
-                      ElevatedButton.icon(
-                        onPressed: _startTrip,
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Start Trip'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).primaryColor,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
           ),
         ],
       ),
     );
   }
-} 
+
+  // Update the completed route line to show progress
+  Future<void> _updateCompletedRouteLine() async {
+    if (_mapController == null || _completedPoints.isEmpty) return;
+    
+    try {
+      // Remove existing completed route line
+      if (_completedRouteLine != null) {
+        await _mapController!.removeLine(_completedRouteLine!);
+      }
+      
+      // Convert points to LatLng for MapLibre
+      final List<LatLng> points = _completedPoints
+          .map((p) => LatLng(p.latitude, p.longitude))
+          .toList();
+      
+      // Add the completed route line
+      _completedRouteLine = await _mapController!.addLine(
+        LineOptions(
+          geometry: points,
+          lineColor: "#4CAF50", // Green for completed route
+          lineWidth: 6.0,
+          lineOpacity: 0.9,
+        ),
+      );
+      
+      // Calculate completion percentage
+      if (_routePoints.isNotEmpty && _destinationPosition != null) {
+        final totalDistance = _calculateTotalRouteDistance();
+        final traveledDistance = _calculateTraveledDistance();
+        
+        setState(() {
+          _completion = totalDistance > 0 ? (traveledDistance / totalDistance) : 0.0;
+          // Clamp to 0-1 range
+          _completion = max(0.0, min(1.0, _completion));
+        });
+      }
+    } catch (e) {
+      print('Error updating completed route line: $e');
+    }
+  }
+  
+  // Calculate the total route distance
+  double _calculateTotalRouteDistance() {
+    double totalDistance = 0.0;
+    
+    if (_routePoints.length < 2) return 0.0;
+    
+    for (int i = 0; i < _routePoints.length - 1; i++) {
+      final p1 = _routePoints[i];
+      final p2 = _routePoints[i + 1];
+      
+      totalDistance += Geolocator.distanceBetween(
+        p1.latitude, p1.longitude,
+        p2.latitude, p2.longitude,
+      );
+    }
+    
+    return totalDistance;
+  }
+  
+  // Calculate the distance traveled so far
+  double _calculateTraveledDistance() {
+    if (_completedPoints.isEmpty || _destinationPosition == null) return 0.0;
+    
+    // Get the last tracked position
+    final lastPosition = _completedPoints.last;
+    
+    // Calculate the distance to the destination
+    final distanceToDestination = Geolocator.distanceBetween(
+      lastPosition.latitude, lastPosition.longitude,
+      _destinationPosition!.latitude, _destinationPosition!.longitude,
+    );
+    
+    // Total route distance minus remaining distance
+    final totalDistance = _calculateTotalRouteDistance();
+    return max(0.0, totalDistance - distanceToDestination);
+  }
+  
+  // Stop the current trip
+  void _stopTrip() async {
+    // Cancel animation timer if running
+    _animationTimer?.cancel();
+    
+    // Reset trip state
+    setState(() {
+      _isTripStarted = false;
+      _hasReachedDestination = false;
+      _completion = 0.0;
+      _lastVillageCheckDistance = 0.0;
+      _showVillageCrossingLog = false;
+    });
+    
+    // Remove bus icon
+    if (_busIconId != null && _mapController != null) {
+      try {
+        await _mapController!.removeSymbol(_busIconId!);
+        _busIconId = null;
+      } catch (e) {
+        print('Error removing bus icon: $e');
+      }
+    }
+    
+    // Remove completed route line
+    if (_completedRouteLine != null && _mapController != null) {
+      try {
+        await _mapController!.removeLine(_completedRouteLine!);
+        _completedRouteLine = null;
+      } catch (e) {
+        print('Error removing completed route line: $e');
+      }
+    }
+    
+    // Reset location update timer to normal frequency
+    _locationUpdateTimer?.cancel();
+    _locationUpdateTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _updateLocation(),
+    );
+    
+    // Clear completed points
+    _completedPoints.clear();
+    
+    // Show message to user
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Trip stopped'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _updateBusPosition(latlong2.LatLng newPosition) async {
+    if (_mapController == null) return;
+    
+    try {
+      // Calculate bearing for bus icon rotation
+      double bearing = 0;
+      if (_completedPoints.isNotEmpty) {
+        final lastPoint = _completedPoints.last;
+        bearing = _calculateBearing(
+          lastPoint.latitude, lastPoint.longitude,
+          newPosition.latitude, newPosition.longitude
+        );
+      }
+      
+      // Remove existing bus icon if any
+      if (_busIconId != null) {
+        await _mapController!.removeSymbol(_busIconId!);
+      }
+      
+      // Add new bus icon with rotation and smooth animation
+      _busIconId = await _mapController!.addSymbol(
+        SymbolOptions(
+          geometry: LatLng(newPosition.latitude, newPosition.longitude),
+          iconImage: "bus-icon",
+          iconSize: 1.2,
+          iconRotate: bearing,
+          textField: 'Bus',
+          textOffset: const Offset(0, 1.5),
+          textColor: '#000000',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 1.0,
+          iconAnchor: "bottom",
+        ),
+      );
+
+      // Animate the camera to follow the bus if not manually interacting
+      if (_shouldAutoZoom && _isTripStarted && !_hasReachedDestination) {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(newPosition.latitude, newPosition.longitude),
+            MapConstants.liveLocationZoom,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error updating bus position: $e');
+    }
+  }
+
+  double _calculateBearing(double lat1, double lon1, double lat2, double lon2) {
+    final dLon = (lon2 - lon1) * pi / 180;
+    final lat1Rad = lat1 * pi / 180;
+    final lat2Rad = lat2 * pi / 180;
+    
+    final y = sin(dLon) * cos(lat2Rad);
+    final x = cos(lat1Rad) * sin(lat2Rad) -
+             sin(lat1Rad) * cos(lat2Rad) * cos(dLon);
+    
+    final bearing = atan2(y, x) * 180 / pi;
+    return (bearing + 360) % 360;
+  }
+
+  // Add method to update ETA and distance
+  void _updateETAAndDistance() {
+    if (_currentPosition != null && _destinationPosition != null) {
+      final distanceInMeters = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        _destinationPosition!.latitude,
+        _destinationPosition!.longitude,
+      );
+
+      // Convert to kilometers with 1 decimal place
+      final distanceInKm = (distanceInMeters / 1000).toStringAsFixed(1);
+      
+      // Estimate time (assuming average speed of 40 km/h)
+      final timeInHours = distanceInMeters / (40 * 1000);
+      final timeInMinutes = (timeInHours * 60).round();
+      
+      // Calculate ETA
+      final now = DateTime.now();
+      final eta = now.add(Duration(minutes: timeInMinutes));
+
+      setState(() {
+        _estimatedDistance = '$distanceInKm km';
+        _estimatedTime = timeInMinutes > 60
+            ? '${(timeInMinutes / 60).floor()}h ${timeInMinutes % 60}min'
+            : '$timeInMinutes min';
+        _estimatedArrivalTime = eta;
+      });
+    }
+  }
+
+  // Add method to handle map clicks for route adjustment
+  void _handleMapClick(LatLng point) {
+    if (_destinationPosition != null) {
+      // Check if click is near the destination (within 500 meters)
+      final distanceToDestination = Geolocator.distanceBetween(
+        point.latitude,
+        point.longitude,
+        _destinationPosition!.latitude,
+        _destinationPosition!.longitude,
+      );
+
+      if (distanceToDestination < 500) {
+        setState(() => _lastClickedPoint = point);
+        _recalculateRouteWithViaPoint(point);
+      }
+    }
+  }
+
+  // Add method to recalculate route with via point
+  Future<void> _recalculateRouteWithViaPoint(LatLng viaPoint) async {
+    if (_currentPosition == null || _destinationPosition == null) return;
+
+    try {
+      final requestBody = {
+        'coordinates': [
+          [_currentPosition!.longitude, _currentPosition!.latitude],
+          [viaPoint.longitude, viaPoint.latitude],
+          [_destinationPosition!.longitude, _destinationPosition!.latitude]
+        ],
+        'preference': 'shortest',
+        'instructions': false,
+        'units': 'km',
+        'geometry_simplify': false
+      };
+
+      final orsApiKey = dotenv.env['ORS_API_KEY'] ?? '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
+      
+      final response = await http.post(
+        Uri.parse('https://api.openrouteservice.org/v2/directions/driving-car/geojson'),
+        headers: {
+          'Authorization': orsApiKey,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Accept': 'application/json, application/geo+json'
+        },
+        body: json.encode(requestBody)
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['features'] != null && 
+            data['features'].isNotEmpty && 
+            data['features'][0]['geometry'] != null) {
+          
+          final coordinates = data['features'][0]['geometry']['coordinates'] as List;
+          final List<LatLng> routePoints = coordinates.map((coord) {
+            return LatLng(coord[1] as double, coord[0] as double);
+          }).toList();
+
+          // Update the route display
+          if (_routeLine != null) {
+            await _mapController?.removeLine(_routeLine!);
+          }
+
+          _routeLine = await _mapController?.addLine(
+            LineOptions(
+              geometry: routePoints,
+              lineColor: "#4285F4",
+              lineWidth: 6.0,
+              lineOpacity: 0.9,
+            ),
+          );
+
+          setState(() {
+            _routePoints = routePoints.map((point) => 
+              latlong2.LatLng(point.latitude, point.longitude)).toList();
+          });
+
+          _updateETAAndDistance();
+        }
+      }
+    } catch (e) {
+      print('Error recalculating route: $e');
+    }
+  }
+
+  // Add new method for searching start location
+  Future<void> _searchStartLocation(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _startLocationResults = [];
+        _isSearchingStartLocation = false;
+      });
+      return;
+    }
+    
+    setState(() => _isSearchingStartLocation = true);
+    
+    try {
+      final encodedQuery = Uri.encodeComponent(query);
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/search?q=$encodedQuery&format=json&countrycodes=in&limit=5&addressdetails=1'
+      );
+      
+      final response = await http.get(
+        url,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'CampusRide/1.0',
+        }
+      );
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        
+        setState(() {
+          _startLocationResults = data.map((place) {
+            final address = place['address'] as Map<String, dynamic>;
+            final city = address['city'] ?? address['town'] ?? address['village'] ?? '';
+            final state = address['state'] ?? '';
+            final displayName = [
+              place['name'] ?? '',
+              city,
+              state,
+            ].where((s) => s.isNotEmpty).join(', ');
+
+            return {
+              'name': displayName,
+              'full_address': place['display_name'] as String,
+              'latitude': double.parse(place['lat']),
+              'longitude': double.parse(place['lon']),
+              'type': place['type'] ?? 'place',
+              'city': city,
+              'state': state,
+            };
+          }).toList();
+          _isSearchingStartLocation = false;
+        });
+      }
+    } catch (e) {
+      print('Start location search error: $e');
+      setState(() {
+        _startLocationResults = [];
+        _isSearchingStartLocation = false;
+      });
+    }
+  }
+
+  // Add method to cancel destination
+  Future<void> _cancelDestination() async {
+    try {
+      await _clearExistingRoute();
+      setState(() {
+        _destinationPosition = null;
+        _routePoints.clear();
+        _completedPoints.clear();
+        _completion = 0.0;
+      });
+      
+      // Center back to current location
+      if (_currentPosition != null) {
+        await _mapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+            15.0,
+          ),
+        );
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Destination cancelled'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      print('Error cancelling destination: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error cancelling destination'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _updateTripInfo() {
+    if (_currentPosition != null && _destinationPosition != null) {
+      final distance = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        _destinationPosition!.latitude,
+        _destinationPosition!.longitude,
+      );
+      
+      setState(() {
+        _distanceRemaining = '${(distance / 1000).toStringAsFixed(1)} km';
+        
+        if (_currentSpeed > 0) {
+          final timeInHours = distance / (_currentSpeed * 1000);
+          final hours = timeInHours.floor();
+          final minutes = ((timeInHours - hours) * 60).round();
+          _timeToDestination = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+        } else {
+          _timeToDestination = '--:--';
+        }
+      });
+    }
+  }
+
+  Future<void> _updateMapZoom() async {
+    if (_mapController == null || _currentPosition == null) return;
+
+    if (_shouldAutoZoom) {
+      if (_destinationPosition != null) {
+        // If destination is set, zoom to show both current location and destination
+        final bounds = LatLngBounds(
+          southwest: LatLng(
+            min(_currentPosition!.latitude, _destinationPosition!.latitude),
+            min(_currentPosition!.longitude, _destinationPosition!.longitude),
+          ),
+          northeast: LatLng(
+            max(_currentPosition!.latitude, _destinationPosition!.latitude),
+            max(_currentPosition!.longitude, _destinationPosition!.longitude),
+          ),
+        );
+
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(
+            bounds,
+            left: 50, right: 50, top: 150, bottom: 150,
+          ),
+        );
+      } else {
+        // If no destination, zoom to 3 km radius around current location
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+            _calculateZoomForRadius(_autoZoomRadius),
+          ),
+        );
+      }
+    }
+  }
+
+  double _calculateZoomForRadius(double radiusInKm) {
+    // Approximate zoom level calculation for a given radius
+    // This is an approximation and may need adjustment based on testing
+    return 15.0 - log(radiusInKm) / log(2);
+  }
+
+  void _handleMapInteraction() {
+    setState(() {
+      _userInteractingWithMap = true;
+      _lastUserInteraction = DateTime.now();
+      _shouldAutoZoom = false;
+    });
+  }
+
+  void _handleMapIdle() {
+    if (_userInteractingWithMap) {
+      setState(() {
+        _userInteractingWithMap = false;
+        _lastUserInteraction = DateTime.now();
+        _shouldAutoZoom = true;
+      });
+      _updateMapZoom();
+    }
+  }
+
+  /// Check if the driver has crossed a village boundary
+  Future<void> _checkVillageCrossing(Position currentPosition) async {
+    if (_routePoints.isEmpty) return;
+
+    // Only check every 500 meters to avoid too frequent checks
+    final distanceTraveled = _calculateTraveledDistance();
+    if (distanceTraveled - _lastVillageCheckDistance < _villageCheckInterval) {
+      return;
+    }
+    _lastVillageCheckDistance = distanceTraveled;
+
+    try {
+      // Use the TripService to get the village name and center
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final latLng = latlong2.LatLng(currentPosition.latitude, currentPosition.longitude);
+      final villageName = await tripService.getVillageName(latLng);
+      if (villageName == null) return;
+      final villageCenter = await tripService.getVillageCenter(villageName);
+      if (villageCenter == null) return;
+      final distance = const latlong2.Distance().distance(latLng, villageCenter);
+      if (distance > MapConstants.villageDetectionRadius) return;
+      if (_passedVillages.contains(villageName)) return;
+
+          // Add to passed villages set
+          _passedVillages.add(villageName);
+          
+          // Create a village crossing record
+          final now = DateTime.now();
+          final crossing = VillageCrossing(
+            name: villageName,
+            timestamp: now,
+            latitude: currentPosition.latitude,
+            longitude: currentPosition.longitude,
+          );
+          
+          // Add to the list of crossings
+          setState(() {
+            _villageCrossings.add(crossing);
+          });
+          
+          // Save to trip data if needed
+          _saveCrossingToTripData(crossing);
+          
+          // Show notification
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.location_city, color: Colors.green),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '🏁 You crossed $villageName',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            'at ${crossing.formattedTime}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.white,
+                duration: const Duration(seconds: 4),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                margin: const EdgeInsets.all(10),
+                action: SnackBarAction(
+                  label: 'VIEW LOG',
+                  textColor: Theme.of(context).primaryColor,
+                  onPressed: () {
+                    setState(() {
+                      _showVillageCrossingLog = true;
+                    });
+                  },
+                ),
+              ),
+            );
+      }
+    } catch (e) {
+      print('Error checking village crossing: $e');
+    }
+  }
+  
+  /// Save village crossing data to trip record
+  void _saveCrossingToTripData(VillageCrossing crossing) {
+    // This could save to local storage or to a backend service
+    // For now, we'll just keep it in memory
+    try {
+      if (_tripId != null) {
+        // Here you would typically save to a database
+        // For example:
+        // _tripService.addVillageCrossing(_tripId!, crossing.toJson());
+        print('Saved crossing of ${crossing.name} at ${crossing.formattedTime} to trip $_tripId');
+      }
+    } catch (e) {
+      print('Error saving village crossing: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: _scaffoldKey,
+      appBar: _isUIVisible ? AppBar(
+        title: const Text('Driver Dashboard'),
+        actions: [
+          if (_destinationPosition != null)
+            IconButton(
+              icon: const Icon(Icons.cancel),
+              tooltip: 'Cancel Destination',
+              onPressed: _cancelDestination,
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _initializeLocation,
+          ),
+        ],
+      ) : null,
+      body: Stack(
+      children: [
+        // Map
+        MaplibreMap(
+          styleString: 'https://api.maptiler.com/maps/streets/style.json?key=${dotenv.env['MAPTILER_API_KEY']}',
+          initialCameraPosition: CameraPosition(
+            target: LatLng(
+                _currentPosition?.latitude ?? 16.5062,
+                _currentPosition?.longitude ?? 80.6480,
+            ),
+            zoom: 15.0,
+          ),
+          myLocationEnabled: true,
+          myLocationTrackingMode: MyLocationTrackingMode.tracking,
+          onMapCreated: _onMapCreated,
+          onStyleLoadedCallback: () {
+            if (_currentPosition != null) {
+              _updateDriverMarker();
+            }
+          },
+            onCameraIdle: () {
+              _handleMapInteractionEnd();
+              if (_userInteractingWithMap) {
+                setState(() {
+                  _userInteractingWithMap = false;
+                  _lastUserInteraction = DateTime.now();
+                  _shouldAutoZoom = true;
+                });
+                _updateMapZoom();
+              }
+            },
+            onMapClick: (point, latLng) {
+              _handleMapInteractionStart();
+              setState(() {
+                _userInteractingWithMap = true;
+                _lastUserInteraction = DateTime.now();
+                _shouldAutoZoom = false;
+              });
+              _handleMapClick(latLng);
+            },
+            compassEnabled: true,
+            zoomGesturesEnabled: true,
+            rotateGesturesEnabled: true,
+            scrollGesturesEnabled: true,
+            doubleClickZoomEnabled: true,
+            minMaxZoomPreference: const MinMaxZoomPreference(1.0, 20.0),
+          ),
+          
+          // UI Components that should be hidden during manual control
+          if (_isUIVisible) ...[
+            // Search bars
+        Positioned(
+          top: 16,
+          left: 16,
+          right: 16,
+              child: _buildSearchBars(),
+        ),
+        
+            // Location button
+        Positioned(
+          bottom: 200,
+          right: 20,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  spreadRadius: 2,
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _centerOnCurrentLocation,
+                borderRadius: BorderRadius.circular(8.0),
+                child: const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: Icon(
+                    Icons.my_location,
+                    color: Colors.blue,
+                    size: 28.0,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        
+            // Bottom info card
+        Positioned(
+          bottom: 16,
+          left: 16,
+          right: 16,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                          // Driver ID with edit button
+                          Row(
+                            children: [
+                              const Icon(Icons.person, size: 20),
+                              const SizedBox(width: 8),
+                              if (_isEditingDriverId)
+                                Expanded(
+                                  child: TextField(
+                                    controller: _driverIdController,
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                    ),
+                                    onSubmitted: (value) {
+                                      setState(() {
+                                        _driverId = value;
+                                        _isEditingDriverId = false;
+                                      });
+                                    },
+                                  ),
+                                )
+                              else
+                                Expanded(
+                                  child: Text(
+                    'Driver ID: ${_driverId ?? 'Not Set'}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                                ),
+                              IconButton(
+                                icon: Icon(_isEditingDriverId ? Icons.check : Icons.edit),
+                                onPressed: () {
+                                  setState(() {
+                                    if (_isEditingDriverId) {
+                                      _driverId = _driverIdController.text;
+                                    }
+                                    _isEditingDriverId = !_isEditingDriverId;
+                                  });
+                                },
+                                iconSize: 20,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                          
+                          // Route information
+                  if (_destinationPosition != null) ...[
+                            const Divider(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                if (_estimatedDistance != null)
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.directions_car, size: 16),
+                                      const SizedBox(width: 4),
+                                      Text(_estimatedDistance!),
+                                    ],
+                                  ),
+                                if (_estimatedTime != null)
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.access_time, size: 16),
+                                      const SizedBox(width: 4),
+                                      Text(_estimatedTime!),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                            if (_estimatedArrivalTime != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.schedule, size: 16),
+                                    const SizedBox(width: 4),
+                    Text(
+                                      'ETA: ${_estimatedArrivalTime!.hour.toString().padLeft(2, '0')}:${_estimatedArrivalTime!.minute.toString().padLeft(2, '0')}',
+                    ),
+                  ],
+                                ),
+                              ),
+                          ],
+                          
+                  const SizedBox(height: 8),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                      // Show Enter ID dialog or logic
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Enter Driver ID'),
+                          content: TextField(
+                            decoration: const InputDecoration(hintText: 'Enter your ID'),
+                            onSubmitted: (value) {
+                              // Save the ID or handle as needed
+                              Navigator.pop(context);
+                            },
+                            ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        ),
+                      );
+                            },
+                    icon: const Icon(Icons.person),
+                    label: const Text('Enter ID'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).primaryColor,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+          
+          // Restore UI button (shown only during manual control)
+          if (!_isUIVisible)
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _toggleUIVisibility,
+                    borderRadius: BorderRadius.circular(20),
+                    child: const Padding(
+                      padding: EdgeInsets.all(12.0),
+                      child: Icon(
+                        Icons.visibility,
+                        color: Colors.blue,
+                        size: 24.0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBars() {
+    return Card(
+      elevation: 4,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Starting point field
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.grey.shade300,
+                  width: 1,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.my_location, color: Colors.blue),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Focus(
+                    onFocusChange: (hasFocus) {
+                      setState(() {
+                        // Update state to show/hide clear icon based on focus
+                        _startLocationController.text.isNotEmpty || hasFocus
+                            ? _showStartClearIcon = true
+                            : _showStartClearIcon = false;
+                      });
+                    },
+                    child: TextField(
+                      controller: _startLocationController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter starting point or choose current location',
+                        border: InputBorder.none,
+                        suffixIcon: _showStartClearIcon
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _startLocationController.clear();
+                                  setState(() {
+                                    _startLocationResults = [];
+                                    _showStartClearIcon = false;
+                                  });
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _showStartClearIcon = value.isNotEmpty;
+                          if (value.length > 2) {
+                            _searchStartLocation(value);
+                          } else {
+                            _startLocationResults = [];
+                          }
+                        });
+                      },
+                      onTap: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (context) => DraggableScrollableSheet(
+                            initialChildSize: 0.4,
+                            minChildSize: 0.3,
+                            maxChildSize: 0.8,
+                            expand: false,
+                            builder: (context, scrollController) => Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListTile(
+                                  leading: const Icon(Icons.my_location, color: Colors.blue),
+                                  title: const Text('Use Current Location'),
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    if (_currentPosition != null) {
+                                      setState(() {
+                                        _startLocationController.text = 'Current Location';
+                                        _startLocationResults = [];
+                                        _showStartClearIcon = true;
+                                      });
+                                    }
+                                  },
+                                ),
+                                const Divider(),
+                                const Padding(
+                                  padding: EdgeInsets.all(8.0),
+                                  child: Text('Or search for a location:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    controller: scrollController,
+                                    itemCount: _startLocationResults.length,
+                                    itemBuilder: (context, index) {
+                                      final result = _startLocationResults[index];
+                                      return ListTile(
+                                        leading: const Icon(Icons.location_city),
+                                        title: Text(result['name']),
+                                        subtitle: Text(
+                                          result['full_address'],
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onTap: () {
+                                          Navigator.pop(context);
+                                          setState(() {
+                                            _startLocationController.text = result['name'];
+                                            _startLocationResults = [];
+                                            _showStartClearIcon = true;
+                                          });
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ),
+                                
+                                // Village crossing log
+                                if (_showVillageCrossingLog)
+                                  Positioned(
+                                    top: 80,
+                                    left: 16,
+                                    right: 16,
+                                    child: VillageCrossingLog(
+                                      crossings: _villageCrossings,
+                                      onClose: () {
+                                        setState(() {
+                                          _showVillageCrossingLog = false;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Destination field
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, color: Colors.red),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Focus(
+                    onFocusChange: (hasFocus) {
+                      setState(() {
+                        // Update state to show/hide clear icon based on focus
+                        _destinationController.text.isNotEmpty || hasFocus
+                            ? _showDestClearIcon = true
+                            : _showDestClearIcon = false;
+                      });
+                    },
+                    child: TextField(
+                      controller: _destinationController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter destination',
+                        border: InputBorder.none,
+                        suffixIcon: _showDestClearIcon
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _destinationController.clear();
+                                  setState(() {
+                                    _searchResults = [];
+                                    _showDestClearIcon = false;
+                                  });
+                                  _clearSearchResultMarkers();
+                                  _cancelDestination();
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _showDestClearIcon = value.isNotEmpty;
+                          if (value.length > 2) {
+                            _searchLocation(value);
+                          } else if (value.isEmpty) {
+                            _searchResults = [];
+                            _clearSearchResultMarkers();
+                            _cancelDestination();
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Search results
+          if (_searchResults.isNotEmpty)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _searchResults.length,
+                itemBuilder: (context, index) {
+                  final result = _searchResults[index];
+                  return ListTile(
+                    leading: const Icon(Icons.location_on_outlined),
+                    title: Text(result['name']),
+                    subtitle: Text(
+                      result['full_address'],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () {
+                      _destinationController.text = result['name'];
+                      _selectDestination(
+                        LatLng(result['latitude'], result['longitude'])
+                      );
+                      setState(() => _searchResults = []);
+                    },
+                  );
+                },
+              ),
+          ),
+        ],
+      ),
+    );
+  }
+}

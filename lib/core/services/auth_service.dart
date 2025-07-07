@@ -1,12 +1,15 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// AuthService handles authentication state and user session management.
-class AuthService with ChangeNotifier {
+class AuthService extends ChangeNotifier {
+  static final AuthService instance = AuthService();
   final _supabase = Supabase.instance.client;
   late final GoogleSignIn _googleSignIn;
   late SharedPreferences _prefs;
@@ -38,6 +41,13 @@ class AuthService with ChangeNotifier {
     }
   }
   
+  /// Initialize Google Sign In
+  void _initGoogleSignIn() {
+    _googleSignIn = GoogleSignIn(
+      clientId: kIsWeb ? dotenv.env['GOOGLE_CLIENT_ID'] : null,
+    );
+  }
+  
   /// Initialize SharedPreferences
   Future<void> _initPrefs() async {
     _prefs = await SharedPreferences.getInstance();
@@ -66,53 +76,62 @@ class AuthService with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     
-    // Get initial session
-    final session = _supabase.auth.currentSession;
-    _currentUser = session?.user;
-    
-    if (_currentUser != null) {
-      await _fetchUserRole();
-    } else {
+    try {
+      // Get initial session
+      final session = _supabase.auth.currentSession;
+      _currentUser = session?.user;
+      
+      if (_currentUser != null) {
+        await _fetchUserRole();
+      }
+      
+      // Listen for auth changes
+      _authSubscription = _supabase.auth.onAuthStateChange.listen((data) async {
+        final AuthChangeEvent event = data.event;
+        final Session? session = data.session;
+        
+        switch (event) {
+          case AuthChangeEvent.signedIn:
+          case AuthChangeEvent.tokenRefreshed:
+            _currentUser = session?.user;
+            if (_currentUser != null) {
+              await _fetchUserRole();
+              await _saveSession(session!);
+            }
+            break;
+          case AuthChangeEvent.signedOut:
+          case AuthChangeEvent.userDeleted:
+            _currentUser = null;
+            _userRole = null;
+            await _clearSession();
+            break;
+          default:
+            break;
+        }
+        _isLoading = false;
+        notifyListeners();
+      });
+    } catch (e) {
+      _error = e.toString();
+    } finally {
       _isLoading = false;
       notifyListeners();
     }
-    
-    // Listen for auth changes
-    _authSubscription = _supabase.auth.onAuthStateChange.listen((data) async {
-      final AuthChangeEvent event = data.event;
-      final Session? session = data.session;
-      
-      switch (event) {
-        case AuthChangeEvent.signedIn:
-        case AuthChangeEvent.tokenRefreshed:
-          _currentUser = session?.user;
-          if (_currentUser != null) {
-            await _fetchUserRole();
-            await _saveSession(session!);
-          }
-          break;
-        case AuthChangeEvent.signedOut:
-        case AuthChangeEvent.userDeleted:
-          _currentUser = null;
-          _userRole = null;
-          await _clearSession();
-          _isLoading = false;
-          notifyListeners();
-          break;
-        default:
-          break;
-      }
-    });
   }
   
   /// Save session to local storage
   Future<void> _saveSession(Session session) async {
     await _prefs.setString('session', session.accessToken);
+    await _prefs.setString('refresh_token', session.refreshToken ?? '');
   }
   
   /// Clear session from local storage
   Future<void> _clearSession() async {
     await _prefs.remove('session');
+    await _prefs.remove('refresh_token');
+    _currentUser = null;
+    _userRole = null;
+    notifyListeners();
   }
   
   /// Fetch user role from profiles table
@@ -121,7 +140,7 @@ class AuthService with ChangeNotifier {
     
     try {
       final response = await _supabase
-          .from('user_profiles')
+          .from('profiles')
           .select('role')
           .eq('id', _currentUser!.id)
           .single();
@@ -151,43 +170,59 @@ class AuthService with ChangeNotifier {
     try {
       print('Updating user role to: $role for user ID: ${_currentUser!.id}');
       
-      // First check if the user_profiles table exists and has the necessary row
-      final userExists = await _supabase
-          .from('user_profiles')
-          .select('id')
-          .eq('id', _currentUser!.id)
-          .maybeSingle();
-      
-      if (userExists == null) {
-        print('User profile does not exist, creating a new one');
-        // Create a new profile if it doesn't exist
-        await _supabase
-            .from('user_profiles')
-            .insert({
-              'id': _currentUser!.id,
-              'email': _currentUser!.email,
-              'role': role,
-              'created_at': DateTime.now().toIso8601String(),
-              'updated_at': DateTime.now().toIso8601String(),
-            });
-      } else {
-        print('User profile exists, updating role');
-        // Update existing profile
-        await _supabase
-            .from('user_profiles')
-            .update({
-              'role': role,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', _currentUser!.id);
+      // Check internet connectivity first
+      try {
+        // First check if the profiles table exists and has the necessary row
+        final userExists = await _supabase
+            .from('profiles')
+            .select('id')
+            .eq('id', _currentUser!.id)
+            .maybeSingle();
+        
+        if (userExists == null) {
+          print('User profile does not exist, creating a new one');
+          // Create a new profile if it doesn't exist
+          await _supabase
+              .from('profiles')
+              .insert({
+                'id': _currentUser!.id,
+                'email': _currentUser!.email,
+                'role': role,
+                'created_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              });
+        } else {
+          print('User profile exists, updating role');
+          // Update existing profile
+          await _supabase
+              .from('profiles')
+              .update({
+                'role': role,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', _currentUser!.id);
+        }
+        
+        _userRole = role;
+        _error = null;
+        print('User role updated successfully to: $role');
+      } on SocketException catch (e) {
+        print('Network error: $e');
+        _error = 'Network error: Please check your internet connection and try again.';
+      } on AuthException catch (e) {
+        print('Auth error: $e');
+        _error = 'Authentication error: ${e.message}';
       }
-      
-      _userRole = role;
-      _error = null;
-      print('User role updated successfully to: $role');
     } catch (e) {
       print('Error updating user role: $e');
       _error = 'Failed to update user role: $e';
+      
+      // More detailed error logging
+      if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
+        _error = 'Network error: Unable to connect to the server. Please check your internet connection.';
+      } else if (e.toString().contains('AuthException')) {
+        _error = 'Authentication error: Your session may have expired. Please sign in again.';
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -266,10 +301,31 @@ class AuthService with ChangeNotifier {
       );
       
       if (response.user != null) {
-        print('User signed up successfully, verification email sent to: $email');
-        _error = null;
-        // Set a success message about email verification instead of profile creation
-        _successMessage = 'Please check your email to verify your account before logging in.';
+        print('User signed up successfully, user ID: ${response.user!.id}');
+        
+        try {
+          // Second step: Insert into profiles table
+          print('Attempting to create user profile record');
+          await _supabase.from('profiles').insert({
+            'id': response.user!.id,
+            'email': email,
+            'role': 'passenger', // Default role
+            'created_at': DateTime.now().toIso8601String(),
+          });
+          print('User profile created successfully');
+          
+          // Set local user role
+          _userRole = 'passenger';
+        } catch (profileError) {
+          print('Error creating user profile: $profileError');
+          // If profile creation fails, we should log the specific error
+          // but we don't need to fail the entire registration process
+          // as the user is already authenticated
+          _error = 'Registration successful but profile setup failed: $profileError';
+          _isLoading = false;
+          notifyListeners();
+        }
+
       } else {
         print('Sign up response did not contain user object');
         _error = 'Registration failed: Please try again';
@@ -314,11 +370,10 @@ class AuthService with ChangeNotifier {
     notifyListeners();
     
     try {
-      await _googleSignIn.signOut();
       await _supabase.auth.signOut();
       await _clearSession();
     } catch (e) {
-      _error = 'Failed to sign out: ${e.toString()}';
+      _error = e.toString();
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -375,12 +430,12 @@ class AuthService with ChangeNotifier {
         print('Error accessing get_all_tables function: $e');
       }
       
-      // Try reading from user_profiles table
+      // Try reading from profiles table
       try {
-        print('\nTesting user_profiles table read:');
+        print('\nTesting profiles table read:');
         if (_currentUser != null) {
           final data = await _supabase
-              .from('user_profiles')
+              .from('profiles')
               .select('*')
               .eq('id', _currentUser!.id);
           print('User profile data: $data');
@@ -388,7 +443,7 @@ class AuthService with ChangeNotifier {
           print('Not authenticated, skipping profile read test');
         }
       } catch (e) {
-        print('Error reading user_profiles: $e');
+        print('Error reading profiles: $e');
       }
       
       // Try listing all buses (should be allowed for everyone)
@@ -406,9 +461,9 @@ class AuthService with ChangeNotifier {
       // Try inserting a test record (if authenticated)
       if (_currentUser != null) {
         try {
-          print('\nTesting user_profiles table write:');
-          print('Attempting to upsert into user_profiles...');
-          final response = await _supabase.from('user_profiles').upsert({
+          print('\nTesting profiles table write:');
+          print('Attempting to upsert into profiles...');
+          final response = await _supabase.from('profiles').upsert({
             'id': _currentUser!.id,
             'email': _currentUser!.email,
             'role': 'passenger',
@@ -421,6 +476,44 @@ class AuthService with ChangeNotifier {
       }
     } catch (e) {
       print('Database test error: $e');
+    }
+  }
+  
+  /// Sign in as super admin
+  Future<void> loginSuperAdmin(String email, String password) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
+    try {
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      
+      if (response.user != null) {
+        // Check if user is a super admin
+        final profile = await _supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', response.user!.id)
+            .single();
+            
+        if (profile['role'] != 'super_admin') {
+          await _supabase.auth.signOut();
+          throw Exception('Unauthorized: Not a super admin');
+        }
+        
+        _currentUser = response.user;
+        _userRole = 'super_admin';
+      }
+    } on AuthException catch (e) {
+      _error = e.message;
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
   

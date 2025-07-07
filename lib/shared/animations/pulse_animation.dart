@@ -4,22 +4,22 @@ import 'package:flutter/material.dart';
 class PulseAnimation extends StatefulWidget {
   /// The child widget to animate.
   final Widget child;
-  
+
   /// Whether the animation is active.
   final bool isActive;
-  
+
   /// The maximum scale factor of the pulse.
   final double maxScale;
-  
+
   /// The minimum scale factor of the pulse.
   final double minScale;
-  
+
   /// The duration of one pulse cycle.
   final Duration duration;
-  
+
   /// The curve of the animation.
   final Curve curve;
-  
+
   /// Creates a PulseAnimation.
   const PulseAnimation({
     Key? key,
@@ -35,7 +35,8 @@ class PulseAnimation extends StatefulWidget {
   State<PulseAnimation> createState() => _PulseAnimationState();
 }
 
-class _PulseAnimationState extends State<PulseAnimation> with SingleTickerProviderStateMixin {
+class _PulseAnimationState extends State<PulseAnimation>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
 
@@ -46,14 +47,14 @@ class _PulseAnimationState extends State<PulseAnimation> with SingleTickerProvid
       vsync: this,
       duration: widget.duration,
     );
-    
+
     _setUpAnimation();
-    
+
     if (widget.isActive) {
       _controller.repeat(reverse: true);
     }
   }
-  
+
   void _setUpAnimation() {
     _animation = TweenSequence<double>([
       TweenSequenceItem(
@@ -76,7 +77,7 @@ class _PulseAnimationState extends State<PulseAnimation> with SingleTickerProvid
   @override
   void didUpdateWidget(PulseAnimation oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
+
     if (widget.isActive != oldWidget.isActive) {
       if (widget.isActive) {
         _controller.repeat(reverse: true);
@@ -85,12 +86,12 @@ class _PulseAnimationState extends State<PulseAnimation> with SingleTickerProvid
         _controller.reset();
       }
     }
-    
+
     if (widget.duration != oldWidget.duration) {
       _controller.duration = widget.duration;
     }
-    
-    if (widget.maxScale != oldWidget.maxScale || 
+
+    if (widget.maxScale != oldWidget.maxScale ||
         widget.minScale != oldWidget.minScale ||
         widget.curve != oldWidget.curve) {
       _setUpAnimation();
@@ -120,22 +121,22 @@ class _PulseAnimationState extends State<PulseAnimation> with SingleTickerProvid
 class FadePulseAnimation extends StatefulWidget {
   /// The child widget to animate.
   final Widget child;
-  
+
   /// Whether the animation is active.
   final bool isActive;
-  
+
   /// The maximum opacity of the pulse.
   final double maxOpacity;
-  
+
   /// The minimum opacity of the pulse.
   final double minOpacity;
-  
+
   /// The duration of one pulse cycle.
   final Duration duration;
-  
+
   /// The curve of the animation.
   final Curve curve;
-  
+
   /// Creates a FadePulseAnimation.
   const FadePulseAnimation({
     Key? key,
@@ -151,7 +152,8 @@ class FadePulseAnimation extends StatefulWidget {
   State<FadePulseAnimation> createState() => _FadePulseAnimationState();
 }
 
-class _FadePulseAnimationState extends State<FadePulseAnimation> with SingleTickerProviderStateMixin {
+class _FadePulseAnimationState extends State<FadePulseAnimation>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
 
@@ -162,14 +164,14 @@ class _FadePulseAnimationState extends State<FadePulseAnimation> with SingleTick
       vsync: this,
       duration: widget.duration,
     );
-    
+
     _setUpAnimation();
-    
+
     if (widget.isActive) {
       _controller.repeat(reverse: true);
     }
   }
-  
+
   void _setUpAnimation() {
     _animation = Tween<double>(
       begin: widget.maxOpacity,
@@ -185,7 +187,7 @@ class _FadePulseAnimationState extends State<FadePulseAnimation> with SingleTick
   @override
   void didUpdateWidget(FadePulseAnimation oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
+
     if (widget.isActive != oldWidget.isActive) {
       if (widget.isActive) {
         _controller.repeat(reverse: true);
@@ -194,12 +196,12 @@ class _FadePulseAnimationState extends State<FadePulseAnimation> with SingleTick
         _controller.reset();
       }
     }
-    
+
     if (widget.duration != oldWidget.duration) {
       _controller.duration = widget.duration;
     }
-    
-    if (widget.maxOpacity != oldWidget.maxOpacity || 
+
+    if (widget.maxOpacity != oldWidget.maxOpacity ||
         widget.minOpacity != oldWidget.minOpacity ||
         widget.curve != oldWidget.curve) {
       _setUpAnimation();
@@ -223,4 +225,4 @@ class _FadePulseAnimationState extends State<FadePulseAnimation> with SingleTick
       child: widget.child,
     );
   }
-} 
+}

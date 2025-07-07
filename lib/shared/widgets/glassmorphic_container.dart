@@ -6,37 +6,37 @@ import '../../core/theme/theme.dart';
 class GlassmorphicContainer extends StatelessWidget {
   /// The child widget.
   final Widget child;
-  
+
   /// The width of the container.
   final double? width;
-  
+
   /// The height of the container.
   final double? height;
-  
+
   /// The border radius of the container.
   final BorderRadius borderRadius;
-  
+
   /// The color of the container's border.
   final Color borderColor;
-  
+
   /// The width of the container's border.
   final double borderWidth;
-  
+
   /// The color of the container's background.
   final Color fillColor;
-  
+
   /// The blur intensity of the glass effect.
   final double blur;
-  
+
   /// The opacity of the container.
   final double opacity;
-  
+
   /// The padding inside the container.
   final EdgeInsetsGeometry padding;
-  
+
   /// The margin around the container.
   final EdgeInsetsGeometry margin;
-  
+
   /// Creates a GlassmorphicContainer.
   const GlassmorphicContainer({
     Key? key,
@@ -85,7 +85,7 @@ class GlassmorphicContainer extends StatelessWidget {
       ),
     );
   }
-  
+
   /// Creates a large version of the container with predefined properties.
   factory GlassmorphicContainer.large({
     required Widget child,
@@ -95,16 +95,16 @@ class GlassmorphicContainer extends StatelessWidget {
     EdgeInsetsGeometry margin = EdgeInsets.zero,
   }) {
     return GlassmorphicContainer(
-      child: child,
       width: width,
       height: height,
       borderRadius: BorderRadius.circular(24),
       padding: padding,
       margin: margin,
       blur: 15.0,
+      child: child,
     );
   }
-  
+
   /// Creates a medium version of the container with predefined properties.
   factory GlassmorphicContainer.medium({
     required Widget child,
@@ -114,15 +114,15 @@ class GlassmorphicContainer extends StatelessWidget {
     EdgeInsetsGeometry margin = EdgeInsets.zero,
   }) {
     return GlassmorphicContainer(
-      child: child,
       width: width,
       height: height,
       borderRadius: BorderRadius.circular(16),
       padding: padding,
       margin: margin,
+      child: child,
     );
   }
-  
+
   /// Creates a small version of the container with predefined properties.
   factory GlassmorphicContainer.small({
     required Widget child,
@@ -132,7 +132,6 @@ class GlassmorphicContainer extends StatelessWidget {
     EdgeInsetsGeometry margin = EdgeInsets.zero,
   }) {
     return GlassmorphicContainer(
-      child: child,
       width: width,
       height: height,
       borderRadius: BorderRadius.circular(12),
@@ -140,6 +139,7 @@ class GlassmorphicContainer extends StatelessWidget {
       padding: padding,
       margin: margin,
       blur: 8.0,
+      child: child,
     );
   }
-} 
+}

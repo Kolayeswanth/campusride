@@ -7,7 +7,7 @@ class RouteStop {
   final double latitude;
   final double longitude;
   final int sequence;
-  
+
   RouteStop({
     required this.id,
     required this.name,
@@ -15,7 +15,7 @@ class RouteStop {
     required this.longitude,
     required this.sequence,
   });
-  
+
   factory RouteStop.fromJson(Map<String, dynamic> json) {
     return RouteStop(
       id: json['id'] as String,
@@ -25,7 +25,7 @@ class RouteStop {
       sequence: json['sequence'] as int? ?? 0,
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -35,7 +35,7 @@ class RouteStop {
       'sequence': sequence,
     };
   }
-  
+
   /// Get the position as a LatLng
   LatLng get position => LatLng(latitude, longitude);
 }
@@ -45,13 +45,13 @@ class RoutePathPoint {
   final double latitude;
   final double longitude;
   final int sequence;
-  
+
   RoutePathPoint({
     required this.latitude,
     required this.longitude,
     required this.sequence,
   });
-  
+
   factory RoutePathPoint.fromJson(Map<String, dynamic> json) {
     return RoutePathPoint(
       latitude: (json['latitude'] as num).toDouble(),
@@ -59,7 +59,7 @@ class RoutePathPoint {
       sequence: json['sequence'] as int? ?? 0,
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'latitude': latitude,
@@ -67,7 +67,7 @@ class RoutePathPoint {
       'sequence': sequence,
     };
   }
-  
+
   /// Get the position as a LatLng
   LatLng get position => LatLng(latitude, longitude);
 }
@@ -86,7 +86,7 @@ class BusRoute {
   final bool isActive;
   final int estimatedDuration; // in minutes
   final int distanceInMeters;
-  
+
   BusRoute({
     required this.id,
     required this.name,
@@ -101,7 +101,7 @@ class BusRoute {
     this.estimatedDuration = 0,
     this.distanceInMeters = 0,
   });
-  
+
   factory BusRoute.fromJson(Map<String, dynamic> json) {
     final List<RouteStop> stops = [];
     if (json['stops'] != null) {
@@ -109,14 +109,14 @@ class BusRoute {
         stops.add(RouteStop.fromJson(stop));
       }
     }
-    
+
     final List<RoutePathPoint> pathPoints = [];
     if (json['path_points'] != null) {
       for (final point in json['path_points']) {
         pathPoints.add(RoutePathPoint.fromJson(point));
       }
     }
-    
+
     return BusRoute(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -132,25 +132,25 @@ class BusRoute {
       distanceInMeters: json['distance_in_meters'] as int? ?? 0,
     );
   }
-  
+
   /// Get the route start position as a LatLng
   LatLng get startPosition => LatLng(startLat, startLng);
-  
+
   /// Get the route end position as a LatLng
   LatLng get endPosition => LatLng(endLat, endLng);
-  
+
   /// Get the list of stop points as LatLng
   List<LatLng> get stopPoints {
     return stops.map((stop) => stop.position).toList();
   }
-  
+
   /// Get the full path as a list of LatLng
   List<LatLng> get path {
     final sortedPoints = List<RoutePathPoint>.from(pathPoints);
     sortedPoints.sort((a, b) => a.sequence.compareTo(b.sequence));
     return sortedPoints.map((point) => point.position).toList();
   }
-  
+
   /// Get the estimated duration as a formatted string (e.g. "30 min")
   String get formattedDuration {
     if (estimatedDuration < 60) {
@@ -165,7 +165,7 @@ class BusRoute {
       }
     }
   }
-  
+
   /// Get the distance as a formatted string (e.g. "5.2 km")
   String get formattedDistance {
     if (distanceInMeters < 1000) {
@@ -175,4 +175,4 @@ class BusRoute {
       return '${km.toStringAsFixed(1)} km';
     }
   }
-} 
+}

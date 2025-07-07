@@ -22,9 +22,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  
+
   bool _isPasswordVisible = false;
-  
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -35,22 +35,22 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Handles the email login process
   Future<void> _signInWithEmail() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     await authService.signInWithEmail(
       _emailController.text.trim(),
       _passwordController.text,
     );
-    
+
     if (!mounted) return;
-    
+
     if (authService.error == null && authService.isAuthenticated) {
       // Successfully signed in - navigate based on role
       if (authService.needsRoleSelection) {
         // User hasn't selected a role yet
         AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
+          context,
           const RoleSelectionScreen(),
         );
       } else if (authService.userRole == 'driver') {
@@ -62,12 +62,12 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
   }
-  
+
   /// Handles Google sign in
   Future<void> _signInWithGoogle() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.signInWithGoogle();
-    
+
     // Note: Actual navigation will happen in the splash screen once the authentication state changes
   }
 
@@ -75,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final authService = Provider.of<AuthService>(context);
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -86,7 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(height: screenSize.height * 0.06),
-                
+
                 // Header section
                 Text(
                   'Welcome Back!',
@@ -99,9 +99,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                
+
                 SizedBox(height: screenSize.height * 0.06),
-                
+
                 // Form section
                 Form(
                   key: _formKey,
@@ -121,7 +121,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your email';
                           }
-                          final emailRegExp = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                          final emailRegExp =
+                              RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
                           if (!emailRegExp.hasMatch(value)) {
                             return 'Please enter a valid email';
                           }
@@ -129,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                       ),
                       const SizedBox(height: 20),
-                      
+
                       // Password field
                       TextFormField(
                         controller: _passwordController,
@@ -140,9 +141,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _isPasswordVisible 
-                                ? Icons.visibility_off_outlined 
-                                : Icons.visibility_outlined,
+                              _isPasswordVisible
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
                               color: AppColors.textSecondary,
                             ),
                             onPressed: () {
@@ -160,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Forgot password link
                       Align(
                         alignment: Alignment.centerRight,
@@ -169,7 +170,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => const ForgotPasswordScreen(),
+                                builder: (context) =>
+                                    const ForgotPasswordScreen(),
                               ),
                             );
                           },
@@ -182,7 +184,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      
+
                       // Error message
                       if (authService.error != null) ...[
                         const SizedBox(height: 8),
@@ -197,7 +199,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.error_outline, 
+                              const Icon(
+                                Icons.error_outline,
                                 color: AppColors.error,
                                 size: 18,
                               ),
@@ -215,7 +218,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 16),
                       ],
-                      
+
                       // Sign in button
                       CustomButton(
                         text: 'Sign In',
@@ -228,9 +231,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-                
+
                 SizedBox(height: screenSize.height * 0.04),
-                
+
                 // Divider
                 Row(
                   children: [
@@ -251,9 +254,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 24),
-                
+
                 // Social login buttons
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -261,15 +264,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Google signin
                     CustomButton(
                       text: 'Google',
-                      onPressed: authService.isLoading ? null : _signInWithGoogle,
+                      onPressed:
+                          authService.isLoading ? null : _signInWithGoogle,
                       type: ButtonType.outlined,
                       prefixIcon: Icons.g_mobiledata_rounded,
                     ),
                   ],
                 ),
-                
+
                 SizedBox(height: screenSize.height * 0.04),
-                
+
                 // Driver login section
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -286,7 +290,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.drive_eta_rounded,
                             color: AppColors.primary,
                             size: 24,
@@ -319,12 +323,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       Center(
                         child: TextButton(
                           onPressed: () {
-                            Navigator.of(context).pushNamed('/driver_verification');
+                            Navigator.of(context)
+                                .pushNamed('/driver_verification');
                           },
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.verified_user_outlined,
                                 size: 16,
                                 color: AppColors.primary,
@@ -344,7 +349,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-                
+
                 // Register link
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
@@ -367,7 +372,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => const RegisterScreen(),
+                                    builder: (context) =>
+                                        const RegisterScreen(),
                                   ),
                                 );
                               },
@@ -388,28 +394,28 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Handles the driver login process
   Future<void> _signInAsDriver() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     // Sign in with email/password
     await authService.signInWithEmail(
       _emailController.text.trim(),
       _passwordController.text,
     );
-    
+
     if (!mounted) return;
-    
+
     // If successfully signed in
     if (authService.error == null && authService.isAuthenticated) {
       // Automatically set role to 'driver'
       await authService.updateUserRole('driver');
-      
+
       if (!mounted) return;
-      
+
       // Navigate to driver dashboard if no error setting role
       if (authService.error == null) {
         Navigator.of(context).pushReplacementNamed('/driver_dashboard');
       }
     }
   }
-} 
+}

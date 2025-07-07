@@ -34,35 +34,35 @@ class PlatformSafeMap extends StatelessWidget {
       final lat = initialCameraPosition.target.latitude;
       final lng = initialCameraPosition.target.longitude;
       final zoom = initialCameraPosition.zoom;
-      
+
       return WebMap(
         initialCenter: latlong2.LatLng(lat, lng),
         initialZoom: zoom,
         showMyLocation: myLocationEnabled,
-        onMapCreated: onMapCreated != null 
-            ? (MapController controller) => onMapCreated!(controller) 
+        onMapCreated: onMapCreated != null
+            ? (MapController controller) => onMapCreated!(controller)
             : null,
-        onTap: onMapClick != null 
-            ? (latlong2.LatLng latLng) => onMapClick!(latLng) 
+        onTap: onMapClick != null
+            ? (latlong2.LatLng latLng) => onMapClick!(latLng)
             : null,
       );
-    } 
+    }
     // For mobile platforms, use the NativeMap implementation
     else {
       // Extract latitude and longitude from the initialCameraPosition
       final lat = initialCameraPosition.target.latitude;
       final lng = initialCameraPosition.target.longitude;
       final zoom = initialCameraPosition.zoom;
-      
+
       return NativeMap(
         initialCenter: latlong2.LatLng(lat, lng),
         initialZoom: zoom,
         showMyLocation: myLocationEnabled,
-        onMapCreated: onMapCreated != null 
-            ? (MaplibreMapController controller) => onMapCreated!(controller) 
+        onMapCreated: onMapCreated != null
+            ? (MaplibreMapController controller) => onMapCreated!(controller)
             : null,
-        onTap: onMapClick != null 
-            ? (latlong2.LatLng latLng) => onMapClick!(latLng) 
+        onTap: onMapClick != null
+            ? (latlong2.LatLng latLng) => onMapClick!(latLng)
             : null,
       );
     }

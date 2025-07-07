@@ -6,58 +6,58 @@ import '../../core/theme/theme.dart';
 class CustomTextField extends StatelessWidget {
   /// The controller for the text field.
   final TextEditingController controller;
-  
+
   /// The label text to display.
   final String label;
-  
+
   /// The hint text to display.
   final String? hint;
-  
+
   /// The icon to display at the start of the field.
   final IconData? prefixIcon;
-  
+
   /// The icon to display at the end of the field.
   final IconData? suffixIcon;
-  
+
   /// Callback for when the suffix icon is tapped.
   final VoidCallback? onSuffixIconTap;
-  
+
   /// Whether the text should be obscured (for passwords).
   final bool obscureText;
-  
+
   /// The keyboard type to use.
   final TextInputType keyboardType;
-  
+
   /// The input formatters to apply.
   final List<TextInputFormatter>? inputFormatters;
-  
+
   /// The text capitalization to use.
   final TextCapitalization textCapitalization;
-  
+
   /// The validator function.
   final String? Function(String?)? validator;
-  
+
   /// Whether the field is enabled.
   final bool enabled;
-  
+
   /// Whether the field should auto-focus.
   final bool autofocus;
-  
+
   /// The text style for the field.
   final TextStyle? style;
-  
+
   /// Maximum lines for the field.
   final int? maxLines;
-  
+
   /// Minimum lines for the field.
   final int? minLines;
-  
+
   /// Maximum length of text.
   final int? maxLength;
-  
+
   /// Callback for when the field changes.
   final Function(String)? onChanged;
-  
+
   /// Custom decoration to override the default.
   final InputDecoration? decoration;
 
@@ -95,56 +95,58 @@ class CustomTextField extends StatelessWidget {
       validator: validator,
       enabled: enabled,
       autofocus: autofocus,
-      style: style ?? AppTypography.bodyLarge.copyWith(
-        color: AppColors.textPrimary,
-      ),
+      style: style ??
+          AppTypography.bodyLarge.copyWith(
+            color: AppColors.textPrimary,
+          ),
       maxLines: maxLines,
       minLines: minLines,
       maxLength: maxLength,
       onChanged: onChanged,
       inputFormatters: inputFormatters,
-      decoration: decoration ?? InputDecoration(
-        labelText: label,
-        hintText: hint,
-        prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
-        suffixIcon: suffixIcon != null
-            ? GestureDetector(
-                onTap: onSuffixIconTap,
-                child: Icon(suffixIcon),
-              )
-            : null,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: AppColors.textHint.withOpacity(0.3),
+      decoration: decoration ??
+          InputDecoration(
+            labelText: label,
+            hintText: hint,
+            prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
+            suffixIcon: suffixIcon != null
+                ? GestureDetector(
+                    onTap: onSuffixIconTap,
+                    child: Icon(suffixIcon),
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: AppColors.textHint.withAlpha((0.3 * 255).round()),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: AppColors.textHint.withAlpha((0.3 * 255).round()),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(
+                color: AppColors.primary,
+                width: 1.5,
+              ),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(
+                color: AppColors.error,
+              ),
+            ),
+            filled: true,
+            fillColor: AppColors.surface,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
           ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: AppColors.textHint.withOpacity(0.3),
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: AppColors.primary,
-            width: 1.5,
-          ),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: AppColors.error,
-          ),
-        ),
-        filled: true,
-        fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
-        ),
-      ),
     );
   }
-} 
+}

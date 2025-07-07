@@ -5,8 +5,8 @@ import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/trip_service.dart';
 import '../../../shared/widgets/widgets.dart';
-import '../../../shared/animations/animations.dart';
 import 'bus_tracking_screen.dart';
+import 'bus_search_screen.dart';
 
 /// PassengerHomeScreen is the main screen for passenger users.
 /// It shows nearby buses, allows searching for routes, and displays a map.
@@ -23,7 +23,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   final _searchController = TextEditingController();
   Timer? _searchDebounce;
   String _searchQuery = '';
-  
+
   // Demo data for buses
   final List<Map<String, dynamic>> _nearbyBuses = [
     {
@@ -60,7 +60,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       'isExpress': false,
     },
   ];
-  
+
   // Demo data for favorite routes
   final List<Map<String, dynamic>> _favoriteRoutes = [
     {
@@ -89,7 +89,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       _refreshBusData();
     });
   }
-  
+
   @override
   void dispose() {
     _refreshTimer?.cancel();
@@ -97,12 +97,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     _searchDebounce?.cancel();
     super.dispose();
   }
-  
+
   /// Sign out the user
   Future<void> _signOut() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.signOut();
-    
+
     if (mounted) {
       Navigator.of(context).pushReplacementNamed('/login');
     }
@@ -114,9 +114,30 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       setState(() {
         _searchQuery = query.toLowerCase();
       });
+
+      // If search query is not empty, show a snackbar with instructions
+      if (query.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Searching for "$query"...'),
+            duration: const Duration(seconds: 2),
+            action: SnackBarAction(
+              label: 'View All Results',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BusSearchScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      }
     });
   }
-  
+
   void _navigateToRoute(String routeId, String routeName) {
     Navigator.push(
       context,
@@ -133,7 +154,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Widget build(BuildContext context) {
     final tripService = Provider.of<TripService>(context);
     final authService = Provider.of<AuthService>(context);
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -193,7 +214,80 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 ],
               ),
             ),
-            
+
+            // Plan Your Trip Card
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Plan Your Trip',
+                    style: AppTypography.titleMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Enter starting point',
+                      prefixIcon:
+                          const Icon(Icons.location_on, color: Colors.green),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 16),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Enter destination',
+                      prefixIcon:
+                          const Icon(Icons.location_on, color: Colors.red),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 16),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                'Planning your trip... This feature is coming soon!'),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Find Routes'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // Search bar
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -222,7 +316,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 ),
               ),
             ),
-            
+
             // Main content
             Expanded(
               child: SingleChildScrollView(
@@ -232,7 +326,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   children: [
                     // Nearby buses section
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -261,10 +356,11 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         },
                       ),
                     ),
-                    
+
                     // Favorite routes section
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 16),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -291,7 +387,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         return _buildRouteCard(route);
                       },
                     ),
-                    
+
                     // Map section
                     Padding(
                       padding: const EdgeInsets.all(16),
@@ -311,7 +407,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.map_outlined,
                               size: 48,
                               color: AppColors.textSecondary,
@@ -335,7 +431,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         ),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -376,12 +472,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       ),
     );
   }
-  
+
   /// Builds a card for a nearby bus.
   Widget _buildBusCard(Map<String, dynamic> bus) {
     final isExpress = bus['isExpress'] as bool;
     Color capacityColor;
-    
+
     switch (bus['capacity']) {
       case 'Low':
         capacityColor = Colors.green;
@@ -395,7 +491,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       default:
         capacityColor = Colors.grey;
     }
-    
+
     return Container(
       width: 260,
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
@@ -407,7 +503,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(6),
@@ -431,7 +528,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   ),
                   if (isExpress)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: AppColors.accentPeach,
                         borderRadius: BorderRadius.circular(4),
@@ -455,7 +553,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                       color: AppColors.primaryLight.withOpacity(0.3),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.directions_bus_rounded,
                       color: AppColors.primary,
                       size: 20,
@@ -544,7 +642,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       ),
     );
   }
-  
+
   /// Builds a card for a favorite route.
   Widget _buildRouteCard(Map<String, dynamic> route) {
     return Card(
@@ -565,7 +663,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                     style: AppTypography.titleMedium,
                   ),
                 ),
-                Icon(
+                const Icon(
                   Icons.favorite,
                   color: AppColors.accentPeach,
                   size: 20,
@@ -635,7 +733,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       ),
     );
   }
-  
+
   // This would be connected to a real API in a production app
   void _refreshBusData() {
     // Simulate API call
@@ -645,13 +743,13 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         for (var bus in _nearbyBuses) {
           final currentEta = bus['eta'].toString();
           final currentDistance = bus['distance'].toString();
-          
+
           // Simulate movement
           if (currentEta.contains('min')) {
             final minutes = int.parse(currentEta.split(' ').first);
             if (minutes > 1) {
               bus['eta'] = '${minutes - 1} min';
-              
+
               // Also update distance
               final distance = double.parse(currentDistance.split(' ').first);
               bus['distance'] = '${(distance - 0.1).toStringAsFixed(1)} km';
@@ -664,4 +762,4 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       });
     }
   }
-} 
+}

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/theme/theme.dart';
-import '../../shared/widgets/widgets.dart';
 import 'init_database.dart';
 
 /// Debug screen for development and testing
@@ -17,7 +16,7 @@ class _DebugScreenState extends State<DebugScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -25,12 +24,12 @@ class _DebugScreenState extends State<DebugScreen> {
     _passwordController.dispose();
     super.dispose();
   }
-  
+
   /// Initialize database tables
   void _initializeDatabase() async {
     await InitDatabase.initializeDatabase(context);
   }
-  
+
   /// Create a test account
   void _createTestAccount() async {
     if (_nameController.text.isEmpty ||
@@ -39,15 +38,15 @@ class _DebugScreenState extends State<DebugScreen> {
       _showSnackBar('Please fill all fields');
       return;
     }
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     await authService.registerWithEmail(
       _emailController.text.trim(),
       _passwordController.text,
       _nameController.text.trim(),
     );
-    
+
     if (authService.error != null) {
       if (mounted) {
         _showSnackBar('Error: ${authService.error}');
@@ -58,31 +57,31 @@ class _DebugScreenState extends State<DebugScreen> {
       }
     }
   }
-  
+
   /// Test driver sign-in
   void _testDriverSignIn() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       _showSnackBar('Please enter email and password');
       return;
     }
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     await authService.signInWithEmail(
       _emailController.text.trim(),
       _passwordController.text,
     );
-    
+
     if (authService.error != null) {
       if (mounted) {
         _showSnackBar('Error: ${authService.error}');
         return;
       }
     }
-    
+
     // Set role to driver
     await authService.updateUserRole('driver');
-    
+
     if (authService.error != null) {
       if (mounted) {
         _showSnackBar('Error setting role: ${authService.error}');
@@ -93,12 +92,12 @@ class _DebugScreenState extends State<DebugScreen> {
       }
     }
   }
-  
+
   /// Sign out
   void _signOut() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.signOut();
-    
+
     if (authService.error != null) {
       if (mounted) {
         _showSnackBar('Error: ${authService.error}');
@@ -109,18 +108,18 @@ class _DebugScreenState extends State<DebugScreen> {
       }
     }
   }
-  
+
   /// Show snackbar message
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Debug Tools'),
@@ -174,9 +173,9 @@ class _DebugScreenState extends State<DebugScreen> {
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Database initialization
             Card(
               child: Padding(
@@ -204,9 +203,9 @@ class _DebugScreenState extends State<DebugScreen> {
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Account creation & role testing
             Card(
               child: Padding(
@@ -268,9 +267,9 @@ class _DebugScreenState extends State<DebugScreen> {
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Current user profile
             if (authService.isAuthenticated)
               Card(
@@ -336,4 +335,4 @@ class _DebugScreenState extends State<DebugScreen> {
       ),
     );
   }
-} 
+}

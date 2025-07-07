@@ -15,9 +15,9 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  
+
   bool _isSuccess = false;
-  
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -27,11 +27,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   /// Request password reset
   Future<void> _resetPassword() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
-    final success = await authService.resetPassword(_emailController.text.trim());
-    
+
+    final success =
+        await authService.resetPassword(_emailController.text.trim());
+
     if (mounted && success) {
       setState(() {
         _isSuccess = true;
@@ -42,7 +43,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -72,7 +73,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
               ),
               const SizedBox(height: 32),
-              
+
               // Success message
               if (_isSuccess) ...[
                 Container(
@@ -116,7 +117,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 const SizedBox(height: 24),
               ],
-              
+
               // Error message
               if (authService.error != null) ...[
                 Container(
@@ -130,8 +131,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.error_outline, 
+                      const Icon(
+                        Icons.error_outline,
                         color: AppColors.error,
                         size: 18,
                       ),
@@ -149,7 +150,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 const SizedBox(height: 24),
               ],
-              
+
               // Form
               Form(
                 key: _formKey,
@@ -168,7 +169,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         if (value == null || value.isEmpty) {
                           return 'Please enter your email';
                         }
-                        final emailRegExp = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                        final emailRegExp =
+                            RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
                         if (!emailRegExp.hasMatch(value)) {
                           return 'Please enter a valid email';
                         }
@@ -176,7 +178,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       },
                     ),
                     const SizedBox(height: 24),
-                    
+
                     // Submit button
                     CustomButton(
                       text: 'Send Reset Instructions',
@@ -185,9 +187,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       isFullWidth: true,
                       prefixIcon: Icons.send_rounded,
                     ),
-                    
+
                     const SizedBox(height: 16),
-                    
+
                     if (_isSuccess) ...[
                       Center(
                         child: TextButton.icon(
@@ -209,4 +211,4 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       ),
     );
   }
-} 
+}

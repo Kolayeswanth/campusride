@@ -72,4 +72,4 @@ class Bus {
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }
-} 
+}

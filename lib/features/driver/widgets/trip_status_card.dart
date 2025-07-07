@@ -1,110 +1,119 @@
 import 'package:flutter/material.dart';
 
 class TripStatusCard extends StatelessWidget {
-  final bool isTracking;
-  final bool isTripActive;
   final String? driverId;
-  final VoidCallback onStartTrip;
-  final VoidCallback onToggleTracking;
-  final VoidCallback onEndTrip;
+  final String? estimatedDistance;
+  final String? estimatedTime;
+  final DateTime? estimatedArrivalTime;
+  final bool isEditingDriverId;
+  final TextEditingController driverIdController;
+  final Function() onEditDriverId;
+  final Function(String) onDriverIdChanged;
 
   const TripStatusCard({
     Key? key,
-    required this.isTracking,
-    required this.isTripActive,
-    this.driverId,
-    required this.onStartTrip,
-    required this.onToggleTracking,
-    required this.onEndTrip,
+    required this.driverId,
+    required this.estimatedDistance,
+    required this.estimatedTime,
+    required this.estimatedArrivalTime,
+    required this.isEditingDriverId,
+    required this.driverIdController,
+    required this.onEditDriverId,
+    required this.onDriverIdChanged,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.all(16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Trip Status',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isTripActive ? Colors.green : Colors.grey,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    isTripActive ? 'Active' : 'Inactive',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (driverId != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Driver ID: $driverId',
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
+            _buildDriverIdField(),
+            if (estimatedDistance != null || estimatedTime != null) ...[
+              const Divider(height: 16),
+              _buildRouteInfo(),
             ],
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                if (!isTripActive)
-                  ElevatedButton.icon(
-                    onPressed: onStartTrip,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start Trip'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  )
-                else ...[
-                  ElevatedButton.icon(
-                    onPressed: onToggleTracking,
-                    icon: Icon(
-                      isTracking ? Icons.pause : Icons.play_arrow,
-                    ),
-                    label: Text(isTracking ? 'Pause' : 'Resume'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isTracking ? Colors.orange : Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: onEndTrip,
-                    icon: const Icon(Icons.stop),
-                    label: const Text('End Trip'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ],
-              ],
-            ),
           ],
         ),
       ),
     );
   }
-} 
+
+  Widget _buildDriverIdField() {
+    return Row(
+      children: [
+        const Icon(Icons.person, size: 20),
+        const SizedBox(width: 8),
+        if (isEditingDriverId)
+          Expanded(
+            child: TextField(
+              controller: driverIdController,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              ),
+              onSubmitted: onDriverIdChanged,
+            ),
+          )
+        else
+          Expanded(
+            child: Text(
+              'Driver ID: ${driverId ?? 'Not Set'}',
+              style: const TextStyle(fontSize: 16),
+            ),
+          ),
+        IconButton(
+          icon: Icon(isEditingDriverId ? Icons.check : Icons.edit),
+          onPressed: onEditDriverId,
+          iconSize: 20,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRouteInfo() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            if (estimatedDistance != null)
+              Row(
+                children: [
+                  const Icon(Icons.directions_car, size: 16),
+                  const SizedBox(width: 4),
+                  Text(estimatedDistance!),
+                ],
+              ),
+            if (estimatedTime != null)
+              Row(
+                children: [
+                  const Icon(Icons.access_time, size: 16),
+                  const SizedBox(width: 4),
+                  Text(estimatedTime!),
+                ],
+              ),
+          ],
+        ),
+        if (estimatedArrivalTime != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.schedule, size: 16),
+                const SizedBox(width: 4),
+                Text(
+                  'ETA: ${estimatedArrivalTime!.hour.toString().padLeft(2, '0')}:${estimatedArrivalTime!.minute.toString().padLeft(2, '0')}',
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}

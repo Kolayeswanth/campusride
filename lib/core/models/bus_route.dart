@@ -40,4 +40,4 @@ class BusRoute {
       'is_active': isActive,
     };
   }
-} 
+}

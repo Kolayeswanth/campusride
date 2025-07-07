@@ -10,6 +10,7 @@ import 'welcome_screen.dart';
 import 'role_selection_screen.dart';
 import '../../driver/screens/driver_home_screen.dart';
 import '../../passenger/screens/passenger_home_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The Splash Screen widget displays when the app is launched.
 /// It shows the app logo and transitions to either the login screen
@@ -21,98 +22,121 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
-  
+
   @override
   void initState() {
     super.initState();
-    
+
     // Set up animations
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-    
+
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: const Interval(0.0, 0.65, curve: Curves.easeInOut),
       ),
     );
-    
+
     _scaleAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: const Interval(0.0, 0.65, curve: Curves.easeInOut),
       ),
     );
-    
+
     // Start animation
     _animationController.forward();
-    
+
     // Navigate after a delay
     Timer(const Duration(seconds: 3), _navigateToNextScreen);
   }
-  
+
   Future<void> _navigateToNextScreen() async {
     if (!mounted) return;
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     // If service is still loading, wait a bit more
     if (authService.isLoading) {
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _navigateToNextScreen();
       return;
     }
-    
-    if (authService.isAuthenticated) {
+
+    // Check if there's an error
+    if (authService.error != null) {
+      // Clear any existing session and show login
+      await authService.signOut();
+      if (mounted) {
+        AnimatedNavigation.fadeInReplacement(context, const LoginScreen());
+      }
+      return;
+    }
+
+    // Check authentication state
+    if (authService.isAuthenticated && authService.currentUser != null) {
       // User is logged in, check role
       final userRole = authService.userRole;
-      
+
       if (userRole == null) {
         // User needs to select a role
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
-          const RoleSelectionScreen(),
-        );
+        if (mounted) {
+          AnimatedNavigation.fadeInReplacement(
+            context,
+            const RoleSelectionScreen(),
+          );
+        }
       } else if (userRole == 'driver') {
         // User is a driver
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
-          const DriverHomeScreen(),
-        );
+        if (mounted) {
+          AnimatedNavigation.fadeInReplacement(
+            context,
+            const DriverHomeScreen(),
+          );
+        }
       } else {
         // User is a passenger
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
-          const PassengerHomeScreen(),
-        );
+        if (mounted) {
+          AnimatedNavigation.fadeInReplacement(
+            context,
+            const PassengerHomeScreen(),
+          );
+        }
       }
     } else {
       // User is not logged in, show welcome or login
-      // For first time users, show welcome screen
-      // This would ideally check if it's the first launch
       final isFirstLaunch = await _isFirstLaunch();
-      
-      if (isFirstLaunch) {
-        AnimatedNavigation.fadeInReplacement(context, const WelcomeScreen());
-      } else {
-        AnimatedNavigation.fadeInReplacement(context, const LoginScreen());
+
+      if (mounted) {
+        if (isFirstLaunch) {
+          AnimatedNavigation.fadeInReplacement(context, const WelcomeScreen());
+        } else {
+          AnimatedNavigation.fadeInReplacement(context, const LoginScreen());
+        }
       }
     }
   }
-  
+
   // Placeholder function to check if this is the first launch
-  // In a real app, this would check shared preferences or local storage
   Future<bool> _isFirstLaunch() async {
-    // Simulate checking for first launch
-    return true; // Always show welcome screen for now
+    final prefs = await SharedPreferences.getInstance();
+    final isFirstLaunch = prefs.getBool('is_first_launch') ?? true;
+
+    if (isFirstLaunch) {
+      await prefs.setBool('is_first_launch', false);
+    }
+
+    return isFirstLaunch;
   }
-  
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -122,7 +146,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
@@ -152,7 +176,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               ),
             ),
           ),
-          
+
           // Main content
           Center(
             child: AnimatedBuilder(
@@ -170,7 +194,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                           width: 120,
                           height: 120,
                           borderRadius: BorderRadius.circular(30),
-                          child: Center(
+                          child: const Center(
                             child: Icon(
                               Icons.directions_bus_rounded,
                               size: 60,
@@ -193,12 +217,13 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                           ),
                         ),
                         const SizedBox(height: 48),
-                        SizedBox(
+                        const SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                AppColors.primary),
                           ),
                         ),
                       ],
@@ -212,4 +237,4 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       ),
     );
   }
-} 
+}
