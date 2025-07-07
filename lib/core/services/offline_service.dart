@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,7 +8,7 @@ class OfflineService {
   static const String _cachedRoutesKey = 'cached_routes';
   static const String _emergencyContactsKey = 'emergency_contacts';
   static const String _offlineMapKey = 'offline_map';
-  
+
   Future<String> get _localPath async {
     final directory = await getApplicationDocumentsDirectory();
     return directory.path;
@@ -25,7 +24,7 @@ class OfflineService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final existingRoutes = prefs.getStringList(_cachedRoutesKey) ?? [];
-      
+
       // Check if route already exists
       final routeId = routeData['id'];
       final existingIndex = existingRoutes.indexWhere((route) {
@@ -34,7 +33,7 @@ class OfflineService {
       });
 
       final routeJson = jsonEncode(routeData);
-      
+
       if (existingIndex != -1) {
         existingRoutes[existingIndex] = routeJson;
       } else {
@@ -52,7 +51,9 @@ class OfflineService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final routes = prefs.getStringList(_cachedRoutesKey) ?? [];
-      return routes.map((route) => jsonDecode(route) as Map<String, dynamic>).toList();
+      return routes
+          .map((route) => jsonDecode(route) as Map<String, dynamic>)
+          .toList();
     } catch (e) {
       print('Error getting cached routes: $e');
       return [];
@@ -60,10 +61,12 @@ class OfflineService {
   }
 
   // Save emergency contacts
-  Future<void> saveEmergencyContacts(List<Map<String, dynamic>> contacts) async {
+  Future<void> saveEmergencyContacts(
+      List<Map<String, dynamic>> contacts) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final contactsJson = contacts.map((contact) => jsonEncode(contact)).toList();
+      final contactsJson =
+          contacts.map((contact) => jsonEncode(contact)).toList();
       await prefs.setStringList(_emergencyContactsKey, contactsJson);
     } catch (e) {
       print('Error saving emergency contacts: $e');
@@ -75,7 +78,9 @@ class OfflineService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final contacts = prefs.getStringList(_emergencyContactsKey) ?? [];
-      return contacts.map((contact) => jsonDecode(contact) as Map<String, dynamic>).toList();
+      return contacts
+          .map((contact) => jsonDecode(contact) as Map<String, dynamic>)
+          .toList();
     } catch (e) {
       print('Error getting emergency contacts: $e');
       return [];
@@ -92,11 +97,13 @@ class OfflineService {
       final prefs = await SharedPreferences.getInstance();
       final mapData = {
         'regionId': regionId,
-        'bounds': bounds.map((point) => {'lat': point.latitude, 'lng': point.longitude}).toList(),
+        'bounds': bounds
+            .map((point) => {'lat': point.latitude, 'lng': point.longitude})
+            .toList(),
         'mapStyle': mapStyle,
         'timestamp': DateTime.now().toIso8601String(),
       };
-      
+
       await prefs.setString(_offlineMapKey, jsonEncode(mapData));
     } catch (e) {
       print('Error saving offline map region: $e');
@@ -122,10 +129,12 @@ class OfflineService {
   Future<bool> hasOfflineData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final hasRoutes = prefs.getStringList(_cachedRoutesKey)?.isNotEmpty ?? false;
-      final hasContacts = prefs.getStringList(_emergencyContactsKey)?.isNotEmpty ?? false;
+      final hasRoutes =
+          prefs.getStringList(_cachedRoutesKey)?.isNotEmpty ?? false;
+      final hasContacts =
+          prefs.getStringList(_emergencyContactsKey)?.isNotEmpty ?? false;
       final hasMap = prefs.getString(_offlineMapKey) != null;
-      
+
       return hasRoutes || hasContacts || hasMap;
     } catch (e) {
       print('Error checking offline data: $e');
@@ -144,4 +153,4 @@ class OfflineService {
       print('Error clearing offline data: $e');
     }
   }
-} 
+}

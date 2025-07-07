@@ -131,10 +131,10 @@ class TripService with ChangeNotifier {
     if (_currentLocation == null) return;
     
     try {
-      final villageName = await _geocodingService.checkCrossedVillage(
-        latlong2.LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
-      );
-      
+    final villageName = await _geocodingService.checkCrossedVillage(
+      latlong2.LatLng(_currentLocation!.latitude, _currentLocation!.longitude)
+    );
+    
       if (villageName != null && 
           villageName != _lastCrossedVillage && 
           !_crossedVillages.contains(villageName)) {
@@ -152,28 +152,28 @@ class TripService with ChangeNotifier {
         // Only show notification if we're actually crossing the village
         // (i.e., we're within the detection radius)
         if (distance <= MapConstants.villageDetectionRadius) {
-          _lastCrossedVillage = villageName;
+      _lastCrossedVillage = villageName;
           _crossedVillages.add(villageName);
-          
-          // Get the current time for the notification
-          final now = DateTime.now();
-          final formattedTime = '${_formatHour(now.hour)}:${_formatMinute(now.minute)} ${now.hour >= 12 ? 'PM' : 'AM'}';
-          
-          // Show notification
-          _showVillageNotification = true;
-          _villageNotificationMessage = '🏁 You crossed $villageName at $formattedTime.';
+      
+      // Get the current time for the notification
+      final now = DateTime.now();
+      final formattedTime = '${_formatHour(now.hour)}:${_formatMinute(now.minute)} ${now.hour >= 12 ? 'PM' : 'AM'}';
+      
+      // Show notification
+      _showVillageNotification = true;
+      _villageNotificationMessage = '🏁 You crossed $villageName at $formattedTime.';
           
           // Store the crossed village in the database
           await _storeCrossedVillage(villageName, now);
-          
-          // Auto-hide notification after 5 seconds
-          _notificationTimer?.cancel();
+      
+      // Auto-hide notification after 5 seconds
+      _notificationTimer?.cancel();
           _notificationTimer = Timer(MapConstants.notificationDuration, () {
-            _showVillageNotification = false;
-            notifyListeners();
-          });
-          
-          notifyListeners();
+        _showVillageNotification = false;
+        notifyListeners();
+      });
+      
+      notifyListeners();
         }
       }
     } catch (e) {
@@ -495,5 +495,18 @@ class TripService with ChangeNotifier {
     _crossedVillages.clear();
     _notificationTimer?.cancel();
     super.dispose();
+  }
+
+  Future<List<BusRoute>> fetchDriverRoutes() async {
+    try {
+      final response = await _supabase.from('routes').select('*');
+      _routes = response.map((e) => BusRoute.fromJson(e)).toList();
+      notifyListeners();
+      return _routes;
+    } catch (e) {
+      _error = 'Failed to fetch driver routes: $e';
+      notifyListeners();
+      return [];
+    }
   }
 }

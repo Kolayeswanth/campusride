@@ -55,7 +55,7 @@ class VillageCrossingLog extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
-          
+
           // List of crossings
           if (crossings.isEmpty)
             const Padding(
@@ -77,7 +77,9 @@ class VillageCrossingLog extends StatelessWidget {
                 shrinkWrap: true,
                 itemCount: crossings.length,
                 itemBuilder: (context, index) {
-                  final crossing = crossings[crossings.length - 1 - index]; // Reverse order (newest first)
+                  final crossing = crossings[crossings.length -
+                      1 -
+                      index]; // Reverse order (newest first)
                   return ListTile(
                     leading: const CircleAvatar(
                       backgroundColor: Colors.green,

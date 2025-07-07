@@ -21,14 +21,14 @@ class TripControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        ElevatedButton.icon(
-          onPressed: onStartTrip,
+          ElevatedButton.icon(
+            onPressed: onStartTrip,
           icon: const Icon(Icons.person),
           label: const Text('Enter ID'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Theme.of(context).primaryColor,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).primaryColor,
+            ),
           ),
-        ),
       ],
     );
   }

@@ -18,19 +18,16 @@ class BusService {
 
   Future<BusInfo?> getBusById(String busId) async {
     try {
-      final response = await _supabase
-          .from(_table)
-          .select()
-          .eq('id', busId)
-          .single();
-      
+      final response =
+          await _supabase.from(_table).select().eq('id', busId).single();
+
       return BusInfo.fromJson(response);
     } catch (e) {
       LoggerUtil.error('Error getting bus', e);
       return null;
     }
   }
-  
+
   // Add a method to get bus locations for a specific route
   Future<List<BusInfo>> getBusesByRoute(String routeNumber) async {
     try {
@@ -39,11 +36,11 @@ class BusService {
           .select()
           .eq('route_number', routeNumber)
           .eq('is_active', true);
-      
+
       return response.map<BusInfo>((item) => BusInfo.fromJson(item)).toList();
     } catch (e) {
       LoggerUtil.error('Error getting buses by route', e);
       return [];
     }
   }
-} 
+}

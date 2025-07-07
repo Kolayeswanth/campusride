@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
-import 'dart:math';
 import 'package:provider/provider.dart';
 import '../services/map_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -50,9 +49,7 @@ class NativeMap extends StatelessWidget {
           {
             "id": "background",
             "type": "background",
-            "paint": {
-              "background-color": "#f8f4f0"
-            }
+            "paint": {"background-color": "#f8f4f0"}
           },
           {
             "id": "maptiler-streets-layer",
@@ -69,7 +66,7 @@ class NativeMap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mapService = Provider.of<MapService>(context);
-    
+
     return MaplibreMap(
       initialCameraPosition: CameraPosition(
         target: LatLng(initialCenter.latitude, initialCenter.longitude),
@@ -79,8 +76,9 @@ class NativeMap extends StatelessWidget {
       styleString: mapService.mapStyleString,
       myLocationEnabled: showMyLocation,
       myLocationTrackingMode: MyLocationTrackingMode.none,
-      onMapClick: onTap != null 
-          ? (_, latLng) => onTap!(latlong2.LatLng(latLng.latitude, latLng.longitude)) 
+      onMapClick: onTap != null
+          ? (_, latLng) =>
+              onTap!(latlong2.LatLng(latLng.latitude, latLng.longitude))
           : null,
     );
   }

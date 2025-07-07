@@ -8,6 +8,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// AuthService handles authentication state and user session management.
 class AuthService extends ChangeNotifier {
+  static final AuthService instance = AuthService();
   final _supabase = Supabase.instance.client;
   late final GoogleSignIn _googleSignIn;
   late SharedPreferences _prefs;
@@ -122,7 +123,7 @@ class AuthService extends ChangeNotifier {
     
     try {
       final response = await _supabase
-          .from('user_profiles')
+          .from('profiles')
           .select('role')
           .eq('id', _currentUser!.id)
           .single();
@@ -154,9 +155,9 @@ class AuthService extends ChangeNotifier {
       
       // Check internet connectivity first
       try {
-        // First check if the user_profiles table exists and has the necessary row
+        // First check if the profiles table exists and has the necessary row
         final userExists = await _supabase
-            .from('user_profiles')
+            .from('profiles')
             .select('id')
             .eq('id', _currentUser!.id)
             .maybeSingle();
@@ -165,7 +166,7 @@ class AuthService extends ChangeNotifier {
           print('User profile does not exist, creating a new one');
           // Create a new profile if it doesn't exist
           await _supabase
-              .from('user_profiles')
+              .from('profiles')
               .insert({
                 'id': _currentUser!.id,
                 'email': _currentUser!.email,
@@ -177,7 +178,7 @@ class AuthService extends ChangeNotifier {
           print('User profile exists, updating role');
           // Update existing profile
           await _supabase
-              .from('user_profiles')
+              .from('profiles')
               .update({
                 'role': role,
                 'updated_at': DateTime.now().toIso8601String(),
@@ -288,9 +289,9 @@ class AuthService extends ChangeNotifier {
         print('User signed up successfully, user ID: ${response.user!.id}');
         
         try {
-          // Second step: Insert into user_profiles table
+          // Second step: Insert into profiles table
           print('Attempting to create user profile record');
-          await _supabase.from('user_profiles').insert({
+          await _supabase.from('profiles').insert({
             'id': response.user!.id,
             'email': email,
             'role': 'passenger', // Default role
@@ -416,12 +417,12 @@ class AuthService extends ChangeNotifier {
         print('Error accessing get_all_tables function: $e');
       }
       
-      // Try reading from user_profiles table
+      // Try reading from profiles table
       try {
-        print('\nTesting user_profiles table read:');
+        print('\nTesting profiles table read:');
         if (_currentUser != null) {
           final data = await _supabase
-              .from('user_profiles')
+              .from('profiles')
               .select('*')
               .eq('id', _currentUser!.id);
           print('User profile data: $data');
@@ -429,7 +430,7 @@ class AuthService extends ChangeNotifier {
           print('Not authenticated, skipping profile read test');
         }
       } catch (e) {
-        print('Error reading user_profiles: $e');
+        print('Error reading profiles: $e');
       }
       
       // Try listing all buses (should be allowed for everyone)
@@ -447,9 +448,9 @@ class AuthService extends ChangeNotifier {
       // Try inserting a test record (if authenticated)
       if (_currentUser != null) {
         try {
-          print('\nTesting user_profiles table write:');
-          print('Attempting to upsert into user_profiles...');
-          final response = await _supabase.from('user_profiles').upsert({
+          print('\nTesting profiles table write:');
+          print('Attempting to upsert into profiles...');
+          final response = await _supabase.from('profiles').upsert({
             'id': _currentUser!.id,
             'email': _currentUser!.email,
             'role': 'passenger',
@@ -462,6 +463,44 @@ class AuthService extends ChangeNotifier {
       }
     } catch (e) {
       print('Database test error: $e');
+    }
+  }
+  
+  /// Sign in as super admin
+  Future<void> loginSuperAdmin(String email, String password) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
+    try {
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      
+      if (response.user != null) {
+        // Check if user is a super admin
+        final profile = await _supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', response.user!.id)
+            .single();
+            
+        if (profile['role'] != 'super_admin') {
+          await _supabase.auth.signOut();
+          throw Exception('Unauthorized: Not a super admin');
+        }
+        
+        _currentUser = response.user;
+        _userRole = 'super_admin';
+      }
+    } on AuthException catch (e) {
+      _error = e.message;
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
   

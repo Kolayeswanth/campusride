@@ -44,4 +44,4 @@ class Bus {
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
-} 
+}

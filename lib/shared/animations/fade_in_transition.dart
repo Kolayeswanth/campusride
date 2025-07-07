@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 class FadeInPageRoute<T> extends PageRouteBuilder<T> {
   /// The page to navigate to.
   final Widget page;
-  
+
   /// The duration of the transition animation.
   final Duration duration;
 
@@ -18,7 +18,7 @@ class FadeInPageRoute<T> extends PageRouteBuilder<T> {
             var curve = Curves.easeInOut;
             var curveTween = CurveTween(curve: curve);
             var fadeAnimation = animation.drive(curveTween);
-            
+
             return FadeTransition(
               opacity: fadeAnimation,
               child: child,
@@ -32,7 +32,7 @@ class FadeInPageRoute<T> extends PageRouteBuilder<T> {
 class SlideUpPageRoute<T> extends PageRouteBuilder<T> {
   /// The page to navigate to.
   final Widget page;
-  
+
   /// The duration of the transition animation.
   final Duration duration;
 
@@ -46,12 +46,12 @@ class SlideUpPageRoute<T> extends PageRouteBuilder<T> {
             var curve = Curves.easeInOut;
             var curveTween = CurveTween(curve: curve);
             var fadeAnimation = animation.drive(curveTween);
-            
+
             var begin = const Offset(0.0, 0.2);
             var end = Offset.zero;
             var tween = Tween(begin: begin, end: end).chain(curveTween);
             var offsetAnimation = animation.drive(tween);
-            
+
             return SlideTransition(
               position: offsetAnimation,
               child: FadeTransition(
@@ -68,7 +68,7 @@ class SlideUpPageRoute<T> extends PageRouteBuilder<T> {
 class AnimatedNavigation {
   /// Navigate to a page with a fade transition.
   static Future<T?> fadeIn<T>(
-    BuildContext context, 
+    BuildContext context,
     Widget page, {
     Duration duration = const Duration(milliseconds: 300),
   }) {
@@ -79,10 +79,10 @@ class AnimatedNavigation {
       ),
     );
   }
-  
+
   /// Navigate to a page with a slide up transition.
   static Future<T?> slideUp<T>(
-    BuildContext context, 
+    BuildContext context,
     Widget page, {
     Duration duration = const Duration(milliseconds: 300),
   }) {
@@ -93,10 +93,10 @@ class AnimatedNavigation {
       ),
     );
   }
-  
+
   /// Replace the current route with a new page using a fade transition.
   static Future<T?> fadeInReplacement<T>(
-    BuildContext context, 
+    BuildContext context,
     Widget page, {
     Duration duration = const Duration(milliseconds: 300),
   }) {
@@ -107,10 +107,10 @@ class AnimatedNavigation {
       ),
     );
   }
-  
+
   /// Replace the current route with a new page using a slide up transition.
   static Future<T?> slideUpReplacement<T>(
-    BuildContext context, 
+    BuildContext context,
     Widget page, {
     Duration duration = const Duration(milliseconds: 300),
   }) {
@@ -121,10 +121,10 @@ class AnimatedNavigation {
       ),
     );
   }
-  
+
   /// Remove all existing routes and navigate to a new page with a fade transition.
   static Future<T?> fadeInAndRemoveUntil<T>(
-    BuildContext context, 
+    BuildContext context,
     Widget page, {
     bool Function(Route<dynamic>)? predicate,
     Duration duration = const Duration(milliseconds: 300),
@@ -137,10 +137,10 @@ class AnimatedNavigation {
       predicate ?? (route) => false,
     );
   }
-  
+
   /// Remove all existing routes and navigate to a new page with a slide up transition.
   static Future<T?> slideUpAndRemoveUntil<T>(
-    BuildContext context, 
+    BuildContext context,
     Widget page, {
     bool Function(Route<dynamic>)? predicate,
     Duration duration = const Duration(milliseconds: 300),
@@ -153,4 +153,4 @@ class AnimatedNavigation {
       predicate ?? (route) => false,
     );
   }
-} 
+}

@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/services/offline_service.dart';
 import '../../../core/services/map_service.dart';
-import '../../../core/theme/theme.dart';
 
 class OfflineSettingsScreen extends StatefulWidget {
   const OfflineSettingsScreen({Key? key}) : super(key: key);
@@ -27,11 +26,11 @@ class _OfflineSettingsScreenState extends State<OfflineSettingsScreen> {
 
     try {
       final mapService = Provider.of<MapService>(context, listen: false);
-      
+
       // Define the campus area bounds
       final campusBounds = [
-        LatLng(33.7749, -84.3963), // Southwest corner
-        LatLng(33.7763, -84.3949), // Northeast corner
+        const LatLng(33.7749, -84.3963), // Southwest corner
+        const LatLng(33.7763, -84.3949), // Northeast corner
       ];
 
       // Save offline map region
@@ -197,4 +196,4 @@ class _OfflineSettingsScreenState extends State<OfflineSettingsScreen> {
       ),
     );
   }
-} 
+}

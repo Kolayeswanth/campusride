@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// A utility class to initialize the database tables in Supabase
 class InitDatabase {
   static final _supabase = Supabase.instance.client;
-  
+
   /// Initialize all required tables for the app
   static Future<void> initializeDatabase(BuildContext context) async {
     try {
@@ -24,34 +24,35 @@ class InitDatabase {
           ),
         ),
       );
-      
+
       // Create user_profiles table
       await _createUserProfilesTable();
-      
+
       // Create driver_verification table
       await _createDriverVerificationTable();
-      
+
       // Create buses table with sample data
       await _createBusesTable();
-      
+
       // Create routes table with sample data
       await _createRoutesTable();
-      
+
       // Create driver_trips table
       await _createDriverTripsTable();
-      
+
       // Create bus_locations table
       await _createBusLocationsTable();
-      
+
       // Close the dialog
       Navigator.of(context).pop();
-      
+
       // Show success dialog
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Database Initialized'),
-          content: const Text('All required tables have been created successfully.'),
+          content:
+              const Text('All required tables have been created successfully.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -63,7 +64,7 @@ class InitDatabase {
     } catch (e) {
       // Close the progress dialog
       Navigator.of(context).pop();
-      
+
       // Show error dialog
       showDialog(
         context: context,
@@ -80,7 +81,7 @@ class InitDatabase {
       );
     }
   }
-  
+
   /// Create user_profiles table
   static Future<void> _createUserProfilesTable() async {
     // Check if table exists
@@ -89,7 +90,7 @@ class InitDatabase {
     } catch (e) {
       print('Error creating user_profiles table: $e');
       // If RPC doesn't exist, use SQL query directly
-      final query = '''
+      const query = '''
       CREATE TABLE IF NOT EXISTS user_profiles (
         id UUID REFERENCES auth.users(id) PRIMARY KEY,
         email TEXT NOT NULL,
@@ -98,12 +99,12 @@ class InitDatabase {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
       ''';
-      
+
       await _executeSql(query);
     }
-    
+
     // Apply RLS
-    final rlsQuery = '''
+    const rlsQuery = '''
     ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
     
     DROP POLICY IF EXISTS "Users can view their own profile" ON user_profiles;
@@ -121,13 +122,13 @@ class InitDatabase {
     ON user_profiles FOR INSERT 
     WITH CHECK (auth.uid() = id);
     ''';
-    
+
     await _executeSql(rlsQuery);
   }
-  
+
   /// Create driver_verification table
   static Future<void> _createDriverVerificationTable() async {
-    final query = '''
+    const query = '''
     CREATE TABLE IF NOT EXISTS driver_verification (
       id SERIAL PRIMARY KEY,
       user_id UUID REFERENCES auth.users(id) NOT NULL,
@@ -150,13 +151,13 @@ class InitDatabase {
     ON driver_verification FOR SELECT 
     USING (auth.uid() = user_id);
     ''';
-    
+
     await _executeSql(query);
   }
-  
+
   /// Create buses table
   static Future<void> _createBusesTable() async {
-    final query = '''
+    const query = '''
     CREATE TABLE IF NOT EXISTS buses (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -178,13 +179,13 @@ class InitDatabase {
     SELECT 'BUS003', 'Library Link', 25, 'active'
     WHERE NOT EXISTS (SELECT 1 FROM buses WHERE id = 'BUS003');
     ''';
-    
+
     await _executeSql(query);
   }
-  
+
   /// Create routes table
   static Future<void> _createRoutesTable() async {
-    final query = '''
+    const query = '''
     CREATE TABLE IF NOT EXISTS routes (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -232,13 +233,13 @@ class InitDatabase {
       }'::jsonb
     WHERE NOT EXISTS (SELECT 1 FROM routes WHERE id = 'ROUTE002');
     ''';
-    
+
     await _executeSql(query);
   }
-  
+
   /// Create driver_trips table
   static Future<void> _createDriverTripsTable() async {
-    final query = '''
+    const query = '''
     CREATE TABLE IF NOT EXISTS driver_trips (
       id TEXT PRIMARY KEY,
       driver_id UUID REFERENCES auth.users(id) NOT NULL,
@@ -267,13 +268,13 @@ class InitDatabase {
     ON driver_trips FOR UPDATE 
     USING (auth.uid() = driver_id);
     ''';
-    
+
     await _executeSql(query);
   }
-  
+
   /// Create bus_locations table
   static Future<void> _createBusLocationsTable() async {
-    final query = '''
+    const query = '''
     CREATE TABLE IF NOT EXISTS bus_locations (
       id SERIAL PRIMARY KEY,
       bus_id TEXT REFERENCES buses(id) NOT NULL,
@@ -297,19 +298,21 @@ class InitDatabase {
     ON bus_locations FOR SELECT 
     USING (true);
     ''';
-    
+
     await _executeSql(query);
   }
-  
+
   /// Helper method to execute SQL queries
   static Future<void> _executeSql(String sql) async {
     try {
       await _supabase.from('_dummy_for_sql').select().limit(1);
     } catch (e) {
       // Creating dummy table to use for SQL execution
-      await _supabase.rpc('exec_sql', params: {'sql': 'CREATE TABLE IF NOT EXISTS _dummy_for_sql (id integer)'});
+      await _supabase.rpc('exec_sql', params: {
+        'sql': 'CREATE TABLE IF NOT EXISTS _dummy_for_sql (id integer)'
+      });
     }
-    
+
     await _supabase.rpc('exec_sql', params: {'sql': sql});
   }
-} 
+}

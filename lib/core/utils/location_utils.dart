@@ -26,16 +26,19 @@ class LocationUtils {
     // Check if location service is enabled
     final isLocationEnabled = await isLocationServiceEnabled();
     if (!isLocationEnabled) {
-      throw Exception('Location services are disabled. Please enable them to continue.');
+      throw Exception(
+          'Location services are disabled. Please enable them to continue.');
     }
 
     // Check if permissions are granted
     final permission = await checkPermission();
     if (permission == LocationPermission.denied) {
-      throw Exception('Location permission denied. Please grant permission to continue.');
+      throw Exception(
+          'Location permission denied. Please grant permission to continue.');
     }
     if (permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission permanently denied. Please enable it in app settings.');
+      throw Exception(
+          'Location permission permanently denied. Please enable it in app settings.');
     }
 
     try {

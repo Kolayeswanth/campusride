@@ -732,8 +732,8 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
                   ),
                 ),
               ],
+              ),
             ),
-          ),
           
           Positioned(
             left: 0,
@@ -765,8 +765,8 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Route ${(_completion * 100).toStringAsFixed(0)}% complete',
-                    style: Theme.of(context).textTheme.titleMedium,
+                          'Route ${(_completion * 100).toStringAsFixed(0)}% complete',
+                          style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ],
               ),

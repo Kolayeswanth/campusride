@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/theme/theme.dart';
 import '../../../shared/widgets/widgets.dart';
-import '../../../shared/animations/animations.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 import '../../../features/debug/debug_screen.dart';
@@ -17,10 +16,11 @@ class WelcomeScreen extends StatefulWidget {
   State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
-class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProviderStateMixin {
+class _WelcomeScreenState extends State<WelcomeScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
-  
+
   @override
   void initState() {
     super.initState();
@@ -28,17 +28,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-    
+
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
-    
+
     _animationController.forward();
   }
-  
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -48,7 +48,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -75,13 +75,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                           // Hidden debug access with long press
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => const DebugScreen()),
+                            MaterialPageRoute(
+                                builder: (context) => const DebugScreen()),
                           );
                         },
                         child: GlassmorphicContainer.large(
                           width: 140,
                           height: 140,
-                          child: Center(
+                          child: const Center(
                             child: Icon(
                               Icons.directions_bus_rounded,
                               size: 80,
@@ -105,36 +106,39 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      
+
                       SizedBox(height: screenSize.height * 0.06),
-                      
+
                       // Feature highlights
                       _buildFeatureItem(
                         icon: Icons.location_on,
                         title: 'Real-time Tracking',
-                        description: 'Track college buses in real-time and never miss a ride',
+                        description:
+                            'Track college buses in real-time and never miss a ride',
                       ),
                       const SizedBox(height: 20),
                       _buildFeatureItem(
                         icon: Icons.notifications,
                         title: 'Smart Notifications',
-                        description: 'Get notified when your bus is approaching your stop',
+                        description:
+                            'Get notified when your bus is approaching your stop',
                       ),
                       const SizedBox(height: 20),
                       _buildFeatureItem(
                         icon: Icons.schedule,
                         title: 'Trip Planning',
-                        description: 'Plan your trips and save your favorite routes',
+                        description:
+                            'Plan your trips and save your favorite routes',
                       ),
-                      
+
                       SizedBox(height: screenSize.height * 0.08),
-                      
+
                       // Action buttons
                       CustomButton.primary(
                         text: 'Create Account',
                         onPressed: () {
                           Navigator.push(
-                            context, 
+                            context,
                             MaterialPageRoute(
                               builder: (context) => const RegisterScreen(),
                             ),
@@ -148,7 +152,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                         text: 'Sign In',
                         onPressed: () {
                           Navigator.push(
-                            context, 
+                            context,
                             MaterialPageRoute(
                               builder: (context) => const LoginScreen(),
                             ),
@@ -156,9 +160,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                         },
                         isFullWidth: true,
                       ),
-                      
+
                       SizedBox(height: screenSize.height * 0.06),
-                      
+
                       // Terms and Privacy
                       RichText(
                         textAlign: TextAlign.center,
@@ -205,7 +209,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
       ),
     );
   }
-  
+
   /// Builds a feature item with an icon, title, and description.
   Widget _buildFeatureItem({
     required IconData icon,
@@ -249,4 +253,4 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
       ],
     );
   }
-} 
+}

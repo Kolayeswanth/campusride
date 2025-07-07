@@ -2,7 +2,6 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'dart:typed_data';
 import 'dart:ui' hide Point;
 import 'dart:math';
 
@@ -23,12 +22,12 @@ class DriverMapService {
         "marker",
         await _loadIconImage('assets/images/marker.png'),
       );
-      
+
       await mapController?.addImage(
         "marker-end",
         await _loadIconImage('assets/images/destination_marker.png'),
       );
-      
+
       await mapController?.addImage(
         "bus-icon",
         await _loadIconImage('assets/images/bus_icon.png'),
@@ -42,7 +41,7 @@ class DriverMapService {
     if (!await _assetExists(assetPath)) {
       return await _createFallbackIcon();
     }
-    
+
     final ByteData bytes = await rootBundle.load(assetPath);
     return bytes.buffer.asUint8List();
   }
@@ -59,19 +58,19 @@ class DriverMapService {
   Future<Uint8List> _createFallbackIcon() async {
     final recorder = PictureRecorder();
     final canvas = Canvas(recorder);
-    final size = 32.0;
-    final radius = size / 2;
-    
+    const size = 32.0;
+    const radius = size / 2;
+
     final paint = Paint()
       ..color = Colors.blue
       ..style = PaintingStyle.fill;
-    
-    canvas.drawCircle(Offset(radius, radius), radius, paint);
-    
+
+    canvas.drawCircle(const Offset(radius, radius), radius, paint);
+
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await img.toByteData(format: ImageByteFormat.png);
-    
+
     return byteData!.buffer.asUint8List();
   }
 
@@ -99,11 +98,12 @@ class DriverMapService {
 
   Future<void> updateRouteLine(List<latlong2.LatLng> routePoints) async {
     if (mapController == null || routePoints.isEmpty) return;
-    
+
     try {
-      final routeLatLngs = routePoints.map((point) => 
-        LatLng(point.latitude, point.longitude)).toList();
-      
+      final routeLatLngs = routePoints
+          .map((point) => LatLng(point.latitude, point.longitude))
+          .toList();
+
       await mapController?.addLine(
         LineOptions(
           geometry: routeLatLngs,
@@ -122,7 +122,7 @@ class DriverMapService {
 
     try {
       const padding = 0.0002;
-      
+
       final bounds = LatLngBounds(
         southwest: LatLng(
           routePoints.map((p) => p.latitude).reduce(min) - padding,
@@ -137,7 +137,10 @@ class DriverMapService {
       await mapController?.animateCamera(
         CameraUpdate.newLatLngBounds(
           bounds,
-          left: 50, right: 50, top: 150, bottom: 150,
+          left: 50,
+          right: 50,
+          top: 150,
+          bottom: 150,
         ),
       );
     } catch (e) {
@@ -149,12 +152,12 @@ class DriverMapService {
     final dLon = (lon2 - lon1) * pi / 180;
     final lat1Rad = lat1 * pi / 180;
     final lat2Rad = lat2 * pi / 180;
-    
+
     final y = sin(dLon) * cos(lat2Rad);
-    final x = cos(lat1Rad) * sin(lat2Rad) -
-             sin(lat1Rad) * cos(lat2Rad) * cos(dLon);
-    
+    final x =
+        cos(lat1Rad) * sin(lat2Rad) - sin(lat1Rad) * cos(lat2Rad) * cos(dLon);
+
     final bearing = atan2(y, x) * 180 / pi;
     return (bearing + 360) % 360;
   }
-} 
+}

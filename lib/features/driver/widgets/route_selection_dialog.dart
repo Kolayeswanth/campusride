@@ -5,7 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart' as geo; // Import with alias
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/location_service.dart';
-import '../../../core/services/map_service.dart';  // Import MapService
+import '../../../core/services/map_service.dart'; // Import MapService
 import '../../../core/models/route.dart';
 
 class RouteSelectionDialog extends StatefulWidget {
@@ -27,14 +27,14 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
   final _busIdController = TextEditingController();
   final _destinationController = TextEditingController();
   BusRoute? _selectedRoute;
-  List<BusRoute> _routes = [];  // Use BusRoute model
+  List<BusRoute> _routes = []; // Use BusRoute model
   bool _isLoading = true;
   String? _error;
   LatLng? _currentLocation;
   LatLng? _selectedDestination;
   final List<Marker> _markers = []; // Use list of Marker
   final List<Polyline> _polylines = []; // Use list of Polyline
-  MapController _mapController = MapController(); // Create an instance
+  final MapController _mapController = MapController(); // Create an instance
 
   @override
   void initState() {
@@ -45,8 +45,9 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      final position = await geo.Geolocator.getCurrentPosition( // Use alias
-          desiredAccuracy: geo.LocationAccuracy.high);  // Use alias
+      final position = await geo.Geolocator.getCurrentPosition(
+          // Use alias
+          desiredAccuracy: geo.LocationAccuracy.high); // Use alias
       setState(() {
         _currentLocation = LatLng(position.latitude, position.longitude);
         _updateMarkers();
@@ -59,7 +60,7 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
   }
 
   void _updateMarkers() {
-    _markers.clear();  // Clear the existing markers
+    _markers.clear(); // Clear the existing markers
 
     if (_currentLocation != null) {
       _markers.add(
@@ -96,7 +97,7 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
       });
       final routes = await widget.tripService.loadRoutes();
       setState(() {
-        _routes = routes.map((e) => e as BusRoute).toList();  // Cast routes
+        _routes = routes.map((e) => e as BusRoute).toList(); // Cast routes
         _isLoading = false;
       });
     } catch (e) {
@@ -115,15 +116,17 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
         LatLng(_currentLocation!.latitude, _currentLocation!.longitude),
         LatLng(_selectedDestination!.latitude, _selectedDestination!.longitude),
       );
-      
+
       setState(() {
-        _polylines.clear();  // Clear existing polylines
-        
+        _polylines.clear(); // Clear existing polylines
+
         // If we got route points from the API, use them
         if (routePoints.isNotEmpty) {
           _polylines.add(
             Polyline(
-              points: routePoints.map((point) => LatLng(point.latitude, point.longitude)).toList(),
+              points: routePoints
+                  .map((point) => LatLng(point.latitude, point.longitude))
+                  .toList(),
               color: Colors.blue,
               strokeWidth: 5,
             ),
@@ -210,7 +213,8 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                                         child: Text('Loading map...'),
                                       )
                                     : FlutterMap(
-                                        mapController: _mapController, // Use controller instance
+                                        mapController:
+                                            _mapController, // Use controller instance
                                         options: MapOptions(
                                           center: _currentLocation!,
                                           zoom: 15,
@@ -226,13 +230,16 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                                           TileLayer(
                                             urlTemplate:
                                                 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                            userAgentPackageName: 'com.example.app',
+                                            userAgentPackageName:
+                                                'com.example.app',
                                           ),
                                           MarkerLayer(
-                                            markers: _markers, // Use _markers list
+                                            markers:
+                                                _markers, // Use _markers list
                                           ),
                                           PolylineLayer(
-                                            polylines: _polylines, // Use _polylines list
+                                            polylines:
+                                                _polylines, // Use _polylines list
                                           ),
                                         ],
                                       ),
@@ -272,21 +279,22 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
-                  onPressed: _selectedRoute == null || _selectedDestination == null
-                      ? null
-                      : () {
-                          if (_formKey.currentState!.validate()) {
-                            Navigator.pop(
-                              context,
-                              {
-                                'busId': _busIdController.text,
-                                'routeId': _selectedRoute!.id,
-                                'routeName': _selectedRoute!.name,
-                                'destination': _selectedDestination,
-                              },
-                            );
-                          }
-                        },
+                  onPressed:
+                      _selectedRoute == null || _selectedDestination == null
+                          ? null
+                          : () {
+                              if (_formKey.currentState!.validate()) {
+                                Navigator.pop(
+                                  context,
+                                  {
+                                    'busId': _busIdController.text,
+                                    'routeId': _selectedRoute!.id,
+                                    'routeName': _selectedRoute!.name,
+                                    'destination': _selectedDestination,
+                                  },
+                                );
+                              }
+                            },
                   child: const Text('Start Trip'),
                 ),
               ],

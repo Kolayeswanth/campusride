@@ -28,4 +28,4 @@ class BusLocation {
       'timestamp': timestamp.toIso8601String(),
     };
   }
-} 
+}

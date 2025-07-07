@@ -22,54 +22,55 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
-  
+
   @override
   void initState() {
     super.initState();
-    
+
     // Set up animations
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-    
+
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: const Interval(0.0, 0.65, curve: Curves.easeInOut),
       ),
     );
-    
+
     _scaleAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: const Interval(0.0, 0.65, curve: Curves.easeInOut),
       ),
     );
-    
+
     // Start animation
     _animationController.forward();
-    
+
     // Navigate after a delay
     Timer(const Duration(seconds: 3), _navigateToNextScreen);
   }
-  
+
   Future<void> _navigateToNextScreen() async {
     if (!mounted) return;
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     // If service is still loading, wait a bit more
     if (authService.isLoading) {
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _navigateToNextScreen();
       return;
     }
-    
+
     // Check if there's an error
     if (authService.error != null) {
       // Clear any existing session and show login
@@ -79,17 +80,17 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       }
       return;
     }
-    
+
     // Check authentication state
     if (authService.isAuthenticated && authService.currentUser != null) {
       // User is logged in, check role
       final userRole = authService.userRole;
-      
+
       if (userRole == null) {
         // User needs to select a role
         if (mounted) {
           AnimatedNavigation.fadeInReplacement(
-            context, 
+            context,
             const RoleSelectionScreen(),
           );
         }
@@ -97,7 +98,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         // User is a driver
         if (mounted) {
           AnimatedNavigation.fadeInReplacement(
-            context, 
+            context,
             const DriverHomeScreen(),
           );
         }
@@ -105,7 +106,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         // User is a passenger
         if (mounted) {
           AnimatedNavigation.fadeInReplacement(
-            context, 
+            context,
             const PassengerHomeScreen(),
           );
         }
@@ -113,7 +114,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     } else {
       // User is not logged in, show welcome or login
       final isFirstLaunch = await _isFirstLaunch();
-      
+
       if (mounted) {
         if (isFirstLaunch) {
           AnimatedNavigation.fadeInReplacement(context, const WelcomeScreen());
@@ -123,19 +124,19 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       }
     }
   }
-  
+
   // Placeholder function to check if this is the first launch
   Future<bool> _isFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     final isFirstLaunch = prefs.getBool('is_first_launch') ?? true;
-    
+
     if (isFirstLaunch) {
       await prefs.setBool('is_first_launch', false);
     }
-    
+
     return isFirstLaunch;
   }
-  
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -145,7 +146,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
@@ -175,7 +176,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               ),
             ),
           ),
-          
+
           // Main content
           Center(
             child: AnimatedBuilder(
@@ -193,7 +194,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                           width: 120,
                           height: 120,
                           borderRadius: BorderRadius.circular(30),
-                          child: Center(
+                          child: const Center(
                             child: Icon(
                               Icons.directions_bus_rounded,
                               size: 60,
@@ -216,12 +217,13 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                           ),
                         ),
                         const SizedBox(height: 48),
-                        SizedBox(
+                        const SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                AppColors.primary),
                           ),
                         ),
                       ],
@@ -235,4 +237,4 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       ),
     );
   }
-} 
+}

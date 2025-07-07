@@ -29,19 +29,17 @@ class BusInfo {
     return BusInfo(
       busId: json['id'] ?? json['bus_id'] ?? '',
       driverId: json['driver_id'] ?? '',
-      currentLocation: LatLng(
-        json['latitude'] ?? 0.0, 
-        json['longitude'] ?? 0.0
-      ),
+      currentLocation:
+          LatLng(json['latitude'] ?? 0.0, json['longitude'] ?? 0.0),
       destination: json['destination'] ?? '',
       estimatedTime: json['estimated_time'] ?? '',
       estimatedDistance: json['estimated_distance'] ?? '',
       isActive: json['is_active'] ?? false,
       routeNumber: json['route_number'] ?? '',
       availableSeats: json['available_seats'] ?? 0,
-      lastUpdated: json['last_updated'] != null 
-        ? DateTime.parse(json['last_updated']) 
-        : DateTime.now(),
+      lastUpdated: json['last_updated'] != null
+          ? DateTime.parse(json['last_updated'])
+          : DateTime.now(),
     );
   }
-} 
+}

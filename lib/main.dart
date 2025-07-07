@@ -1,118 +1,92 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'core/theme/app_theme.dart';
 import 'core/utils/logger_util.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/map_service.dart';
 import 'core/services/trip_service.dart';
-import 'core/theme/theme.dart';
-import 'features/auth/screens/splash_screen.dart';
-import 'features/auth/screens/login_screen.dart';
-import 'features/auth/screens/register_screen.dart';
-import 'features/auth/screens/welcome_screen.dart';
-import 'features/auth/screens/role_selection_screen.dart';
-import 'features/passenger/screens/passenger_home_screen.dart';
-import 'features/driver/screens/driver_home_screen.dart';
-import 'features/driver/screens/driver_dashboard_screen.dart';
 import 'core/services/navigation_service.dart';
+import 'features/admin/services/super_admin_service.dart';
+import 'features/admin/drivers/services/driver_service.dart';
+import 'features/admin/routes/services/route_service.dart';
+import 'features/admin/services/driver_location_service.dart';
+import 'features/admin/colleges/services/college_service.dart';
+import 'features/admin/screens/super_admin_login_screen.dart';
+import 'features/admin/colleges/screens/college_list_screen.dart';
+import 'features/driver/screens/driver_home_screen.dart';
+import 'features/auth/screens/login_screen.dart';
+import 'features/auth/screens/role_selection_screen.dart';
+import 'features/auth/screens/welcome_screen.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Load environment variables
-  await dotenv.load(fileName: ".env");
-  
-  // Lock orientation to portrait
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-  
-  // Check connectivity before initializing Supabase
-  final connectivityResult = await Connectivity().checkConnectivity();
-  if (connectivityResult == ConnectivityResult.none) {
-    // Handle no connectivity - we'll still try to initialize Supabase
-    // but at least we've logged the issue
-    LoggerUtil.warning('No internet connectivity detected. Supabase initialization may fail.');
-  }
-  
   try {
-    // Initialize Supabase
-    final supabaseUrl = dotenv.env['SUPABASE_URL'] ?? 'https://eaxrhqfjiuydbhqxaicv.supabase.co';
-    final supabaseKey = dotenv.env['SUPABASE_ANON_KEY'] ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVheHJocWZqaXV5ZGJocXhhaWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NzYzNTQsImV4cCI6MjA1OTI1MjM1NH0.z54KRmsOnm6kgHXnFF8cW69jZmqvoQa4dV8weYVes8w';
-    
-    LoggerUtil.info('Initializing Supabase with URL: $supabaseUrl');
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    print('Error loading .env file: $e');
+  }
+
+  // Initialize Supabase
+  final supabaseUrl = dotenv.env['SUPABASE_URL'];
+  final supabaseKey = dotenv.env['SUPABASE_KEY'];
+
+  if (supabaseUrl == null || supabaseKey == null) {
+    LoggerUtil.fatal('SUPABASE_URL or SUPABASE_KEY not found in .env file. Please make sure your .env file is correctly configured.');
+    throw Exception('SUPABASE_URL or SUPABASE_KEY not found in .env file.');
+  }
+
+  try {
     await Supabase.initialize(
       url: supabaseUrl,
       anonKey: supabaseKey,
-      debug: kDebugMode,
     );
     LoggerUtil.info('Supabase initialized successfully');
+    runApp(const MyApp());
   } catch (e) {
-    LoggerUtil.error('Error initializing Supabase', e);
-    // We'll continue with the app launch, but authentication will fail
+    LoggerUtil.fatal('Error initializing Supabase: $e');
+    rethrow;
   }
-  
-  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final supabase = Supabase.instance.client;
+
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthService()),
-        ChangeNotifierProvider<NavigationService>(
-          create: (_) => NavigationService(),
+        ChangeNotifierProvider(create: (_) => AuthService.instance),
+        ChangeNotifierProvider(create: (_) => SuperAdminService()),
+        ChangeNotifierProvider(create: (_) => DriverService()),
+        ChangeNotifierProvider(
+          create: (_) => RouteService(supabase),
         ),
-        ChangeNotifierProvider<MapService>(
-          create: (context) {
-            final mapService = MapService();
-            final navigationService = Provider.of<NavigationService>(context, listen: false);
-            mapService.setNavigationService(navigationService);
-            navigationService.setMapService(mapService);
-            return mapService;
-          },
-        ),
-        ChangeNotifierProvider<TripService>(
-          create: (_) => TripService(),
-        ),
+        ChangeNotifierProvider(create: (_) => DriverLocationService()),
+        ChangeNotifierProvider(create: (_) => CollegeService()),
+        ChangeNotifierProvider(create: (_) => MapService()),
+        ChangeNotifierProvider(create: (_) => TripService()),
+        ChangeNotifierProvider(create: (_) => NavigationService()),
       ],
       child: MaterialApp(
         title: 'CampusRide',
         theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
         debugShowCheckedModeBanner: false,
         initialRoute: '/',
         routes: {
-          '/': (context) => const SplashScreen(),
-          '/welcome': (context) => const WelcomeScreen(),
+          '/': (context) => const SuperAdminLoginScreen(),
+          '/admin/colleges': (context) => const CollegeListScreen(),
+          '/driver_home': (context) => const DriverHomeScreen(),
           '/login': (context) => const LoginScreen(),
-          '/register': (context) => const RegisterScreen(),
           '/role_selection': (context) => const RoleSelectionScreen(),
-          '/driver': (context) => const DriverHomeScreen(),
-          '/driver_dashboard': (context) => const DriverDashboardScreen(),
-          '/passenger': (context) => const PassengerHomeScreen(),
+          '/welcome': (context) => const WelcomeScreen(),
         },
       ),
     );
-  }
-}
-
-/// AuthWrapper widget that decides which screen to show based on auth state
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    // Return to normal app flow with splash screen
-    return const SplashScreen();
   }
 }

@@ -7,11 +7,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mockito/mockito.dart';
 import 'package:provider/provider.dart';
 
-import 'package:campusride/main.dart';
 import 'package:campusride/core/services/auth_service.dart';
 import 'package:campusride/core/services/map_service.dart';
 import 'package:campusride/core/services/trip_service.dart';
@@ -19,8 +17,11 @@ import 'package:campusride/core/services/navigation_service.dart';
 
 // Mock classes
 class MockAuthService extends Mock implements AuthService {}
+
 class MockMapService extends Mock implements MapService {}
+
 class MockTripService extends Mock implements TripService {}
+
 class MockNavigationService extends Mock implements NavigationService {}
 
 void main() {
@@ -29,17 +30,18 @@ void main() {
   final mockMapService = MockMapService();
   final mockTripService = MockTripService();
   final mockNavigationService = MockNavigationService();
-  
+
   // Setup test widget with mocked providers
   Widget createTestApp() {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<AuthService>.value(value: mockAuthService),
-        ChangeNotifierProvider<NavigationService>.value(value: mockNavigationService),
+        ChangeNotifierProvider<NavigationService>.value(
+            value: mockNavigationService),
         ChangeNotifierProvider<MapService>.value(value: mockMapService),
         ChangeNotifierProvider<TripService>.value(value: mockTripService),
       ],
-      child: MaterialApp(
+      child: const MaterialApp(
         home: Scaffold(
           body: Center(
             child: Text('CampusRide Test'),

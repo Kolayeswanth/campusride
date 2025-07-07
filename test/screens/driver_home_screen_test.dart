@@ -10,8 +10,11 @@ import 'package:campusride/core/services/navigation_service.dart';
 
 // Mock classes
 class MockAuthService extends Mock implements AuthService {}
+
 class MockMapService extends Mock implements MapService {}
+
 class MockTripService extends Mock implements TripService {}
+
 class MockNavigationService extends Mock implements NavigationService {}
 
 void main() {
@@ -19,13 +22,13 @@ void main() {
   late MockMapService mockMapService;
   late MockTripService mockTripService;
   late MockNavigationService mockNavigationService;
-  
+
   setUp(() {
     mockAuthService = MockAuthService();
     mockMapService = MockMapService();
     mockTripService = MockTripService();
     mockNavigationService = MockNavigationService();
-    
+
     // Setup mock behavior
     when(mockAuthService.isAuthenticated).thenReturn(true);
     when(mockAuthService.currentUser).thenReturn({
@@ -35,45 +38,48 @@ void main() {
       'role': 'driver'
     });
   });
-  
+
   // Helper function to build the widget under test
   Widget createDriverHomeScreen() {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<AuthService>.value(value: mockAuthService),
-        ChangeNotifierProvider<NavigationService>.value(value: mockNavigationService),
+        ChangeNotifierProvider<NavigationService>.value(
+            value: mockNavigationService),
         ChangeNotifierProvider<MapService>.value(value: mockMapService),
         ChangeNotifierProvider<TripService>.value(value: mockTripService),
       ],
-      child: MaterialApp(
+      child: const MaterialApp(
         home: DriverHomeScreen(),
       ),
     );
   }
-  
+
   group('DriverHomeScreen Tests', () {
-    testWidgets('should display driver name when authenticated', (WidgetTester tester) async {
+    testWidgets('should display driver name when authenticated',
+        (WidgetTester tester) async {
       // Arrange
       await tester.pumpWidget(createDriverHomeScreen());
       await tester.pumpAndSettle();
-      
+
       // Assert
       // This would need to be adapted to the actual implementation
       // This is a simplified test for demonstration
       expect(find.text('Test Driver'), findsOneWidget);
     });
-    
-    testWidgets('should show map when screen loads', (WidgetTester tester) async {
+
+    testWidgets('should show map when screen loads',
+        (WidgetTester tester) async {
       // Arrange
       await tester.pumpWidget(createDriverHomeScreen());
       await tester.pumpAndSettle();
-      
+
       // Assert
       // Look for map container or related widgets
       // This would need to be adapted to the actual implementation
       expect(find.byType(DriverHomeScreen), findsOneWidget);
     });
-    
+
     // Additional tests would be added here for:
     // - Testing route selection
     // - Testing trip start/stop functionality

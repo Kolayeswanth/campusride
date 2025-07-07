@@ -13,13 +13,13 @@ class TripHistoryScreen extends StatelessWidget {
     return Consumer<TripService>(
       builder: (context, tripService, _) {
         final tripHistory = tripService.tripHistory;
-        
+
         if (tripHistory.isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
+                const Icon(
                   Icons.history,
                   size: 64,
                   color: AppColors.textSecondary,
@@ -41,7 +41,7 @@ class TripHistoryScreen extends StatelessWidget {
             ),
           );
         }
-        
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
@@ -69,7 +69,7 @@ class TripHistoryScreen extends StatelessWidget {
       },
     );
   }
-  
+
   /// Build a trip history item card
   Widget _buildTripHistoryItem(Trip trip) {
     return Card(
@@ -120,7 +120,7 @@ class TripHistoryScreen extends StatelessWidget {
       ),
     );
   }
-  
+
   /// Build an info row for trip details
   Widget _buildInfoRow({
     required IconData icon,
@@ -151,4 +151,4 @@ class TripHistoryScreen extends StatelessWidget {
       ],
     );
   }
-} 
+}

@@ -83,4 +83,4 @@ class SpeedTracker extends StatelessWidget {
       ),
     );
   }
-} 
+}

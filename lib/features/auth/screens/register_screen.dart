@@ -5,10 +5,8 @@ import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../shared/widgets/widgets.dart';
 import '../../../shared/animations/animations.dart';
-import 'login_screen.dart';
 import 'role_selection_screen.dart';
 import '../../driver/screens/driver_home_screen.dart';
-import '../../passenger/screens/passenger_home_screen.dart';
 
 /// RegisterScreen handles new user registration with email/password.
 class RegisterScreen extends StatefulWidget {
@@ -26,11 +24,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   final _driverIdController = TextEditingController();
   final _licenseNumberController = TextEditingController();
-  
+
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isDriverRegistration = false;
-  
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -45,47 +43,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
   /// Handle registration with email and password
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     final authService = Provider.of<AuthService>(context, listen: false);
-    
+
     await authService.registerWithEmail(
       _emailController.text.trim(),
       _passwordController.text,
       _nameController.text.trim(),
     );
-    
+
     if (!mounted) return;
-    
+
     if (authService.error == null && authService.isAuthenticated) {
       if (_isDriverRegistration) {
         // If registering as a driver, set role immediately
         await authService.updateUserRole('driver');
-        
+
         // Store driver verification information in the database
         await authService.updateDriverInfo(
           driverId: _driverIdController.text.trim(),
           licenseNumber: _licenseNumberController.text.trim(),
         );
-        
+
         if (!mounted) return;
-        
+
         if (authService.error == null) {
           // If role was set successfully, go to driver home
           AnimatedNavigation.fadeInAndRemoveUntil(
-            context, 
+            context,
             const DriverHomeScreen(),
           );
         } else {
           // If there was an error setting the role, go to role selection
           AnimatedNavigation.fadeInAndRemoveUntil(
-            context, 
+            context,
             const RoleSelectionScreen(),
           );
         }
       } else {
         // If standard registration, go to role selection
         AnimatedNavigation.fadeInAndRemoveUntil(
-          context, 
+          context,
           const RoleSelectionScreen(),
         );
       }
@@ -96,7 +94,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final authService = Provider.of<AuthService>(context);
-    
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -126,9 +124,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                
+
                 SizedBox(height: screenSize.height * 0.04),
-                
+
                 // Form section
                 Form(
                   key: _formKey,
@@ -156,7 +154,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Email field
                       TextFormField(
                         controller: _emailController,
@@ -170,7 +168,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your email';
                           }
-                          final emailRegExp = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                          final emailRegExp =
+                              RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
                           if (!emailRegExp.hasMatch(value)) {
                             return 'Please enter a valid email';
                           }
@@ -178,7 +177,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Password field
                       TextFormField(
                         controller: _passwordController,
@@ -189,9 +188,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _isPasswordVisible 
-                                ? Icons.visibility_off_outlined 
-                                : Icons.visibility_outlined,
+                              _isPasswordVisible
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
                               color: AppColors.textSecondary,
                             ),
                             onPressed: () {
@@ -219,7 +218,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Confirm Password field
                       TextFormField(
                         controller: _confirmPasswordController,
@@ -230,14 +229,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _isConfirmPasswordVisible 
-                                ? Icons.visibility_off_outlined 
-                                : Icons.visibility_outlined,
+                              _isConfirmPasswordVisible
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
                               color: AppColors.textSecondary,
                             ),
                             onPressed: () {
                               setState(() {
-                                _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+                                _isConfirmPasswordVisible =
+                                    !_isConfirmPasswordVisible;
                               });
                             },
                           ),
@@ -252,7 +252,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return null;
                         },
                       ),
-                      
+
                       // Error message
                       if (authService.error != null) ...[
                         const SizedBox(height: 16),
@@ -267,7 +267,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.error_outline, 
+                              const Icon(
+                                Icons.error_outline,
                                 color: AppColors.error,
                                 size: 18,
                               ),
@@ -284,7 +285,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                       ],
-                      
+
                       // Driver verification fields (only shown if registering as driver)
                       if (_isDriverRegistration)
                         Column(
@@ -332,9 +333,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                           ],
                         ),
-                      
+
                       SizedBox(height: screenSize.height * 0.04),
-                      
+
                       // Driver registration option
                       const SizedBox(height: 16),
                       Container(
@@ -400,13 +401,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ],
                         ),
                       ),
-                      
+
                       SizedBox(height: screenSize.height * 0.04),
-                      
+
                       // Register button
                       CustomButton(
-                        text: _isDriverRegistration 
-                            ? 'Register as Driver' 
+                        text: _isDriverRegistration
+                            ? 'Register as Driver'
                             : 'Create Account',
                         onPressed: authService.isLoading ? null : _register,
                         isLoading: authService.isLoading,
@@ -415,13 +416,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         prefixIcon: _isDriverRegistration
                             ? Icons.drive_eta_rounded
                             : Icons.person_add_outlined,
-                        color: _isDriverRegistration
-                            ? AppColors.primary
-                            : null,
+                        color: _isDriverRegistration ? AppColors.primary : null,
                       ),
-                      
+
                       SizedBox(height: screenSize.height * 0.03),
-                      
+
                       // Sign in link
                       Center(
                         child: RichText(
@@ -458,4 +457,4 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
-} 
+}

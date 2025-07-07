@@ -6,10 +6,10 @@ class DriverTripService {
   final Function(bool) onTripStatusChange;
   final Function(double) onCompletionUpdate;
   final Function(bool) onDestinationReached;
-  
+
   Timer? _locationUpdateTimer;
   Timer? _speedUpdateTimer;
-  List<latlong2.LatLng> _completedPoints = [];
+  final List<latlong2.LatLng> _completedPoints = [];
   double _lastDeviationCheckDistance = 0.0;
   static const double _deviationCheckInterval = 100.0; // meters
 
@@ -23,7 +23,7 @@ class DriverTripService {
     _completedPoints.clear();
     _lastDeviationCheckDistance = 0.0;
     onTripStatusChange(true);
-    
+
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -56,7 +56,8 @@ class DriverTripService {
     // Calculate completion percentage
     final totalDistance = _calculateTotalRouteDistance(routePoints);
     final traveledDistance = _calculateTraveledDistance();
-    final completion = totalDistance > 0 ? (traveledDistance / totalDistance) : 0.0;
+    final completion =
+        totalDistance > 0 ? (traveledDistance / totalDistance) : 0.0;
     onCompletionUpdate(completion);
 
     // Check for destination
@@ -75,41 +76,46 @@ class DriverTripService {
 
   double _calculateTotalRouteDistance(List<latlong2.LatLng> routePoints) {
     double totalDistance = 0.0;
-    
+
     if (routePoints.length < 2) return 0.0;
-    
+
     for (int i = 0; i < routePoints.length - 1; i++) {
       final p1 = routePoints[i];
       final p2 = routePoints[i + 1];
-      
+
       totalDistance += Geolocator.distanceBetween(
-        p1.latitude, p1.longitude,
-        p2.latitude, p2.longitude,
+        p1.latitude,
+        p1.longitude,
+        p2.latitude,
+        p2.longitude,
       );
     }
-    
+
     return totalDistance;
   }
 
   double _calculateTraveledDistance() {
     if (_completedPoints.isEmpty) return 0.0;
-    
+
     double distance = 0.0;
     for (int i = 0; i < _completedPoints.length - 1; i++) {
       final p1 = _completedPoints[i];
       final p2 = _completedPoints[i + 1];
-      
+
       distance += Geolocator.distanceBetween(
-        p1.latitude, p1.longitude,
-        p2.latitude, p2.longitude,
+        p1.latitude,
+        p1.longitude,
+        p2.latitude,
+        p2.longitude,
       );
     }
-    
+
     return distance;
   }
 
   bool shouldCheckDeviation(double distanceTraveled) {
-    if (distanceTraveled - _lastDeviationCheckDistance >= _deviationCheckInterval) {
+    if (distanceTraveled - _lastDeviationCheckDistance >=
+        _deviationCheckInterval) {
       _lastDeviationCheckDistance = distanceTraveled;
       return true;
     }
@@ -120,4 +126,4 @@ class DriverTripService {
     _locationUpdateTimer?.cancel();
     _speedUpdateTimer?.cancel();
   }
-} 
+}

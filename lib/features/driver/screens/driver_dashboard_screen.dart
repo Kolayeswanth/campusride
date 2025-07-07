@@ -116,6 +116,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // Trip tracking
   String? _tripId;
 
+  double _currentSpeed = 0.0; // Add this field to track current speed
+
   // Add method to toggle UI visibility
   void _toggleUIVisibility() {
     setState(() {
@@ -602,7 +604,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       );
       
       if (mounted) {
-        setState(() => _currentPosition = position);
+        setState(() {
+          _currentPosition = position;
+          _currentSpeed = position.speed >= 0 ? position.speed : 0.0; // Update speed
+        });
         await _updateDriverMarker();
         
         // Only update camera if user hasn't interacted recently and we're not in active navigation
@@ -1452,6 +1457,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _completedPoints = [];
       _lastVillageCheckDistance = 0.0;
       _showVillageCrossingLog = false;
+      _shouldAutoZoom = true; // Enable auto-zoom when trip starts
     });
 
     // Add bus icon at current position
@@ -1489,6 +1495,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (mounted) {
         setState(() {
           _currentPosition = position;
+          _currentSpeed = position.speed >= 0 ? position.speed : 0.0; // Update speed
         });
         
         // Update the bus icon position with smooth animation
@@ -1603,6 +1610,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _routePoints.clear();
       _completedPoints.clear();
       _destinationPosition = null;
+      _shouldAutoZoom = false; // Disable auto-zoom when trip ends
     });
     
     // Show trip summary dialog
@@ -1798,17 +1806,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       );
 
       // Animate the camera to follow the bus if not manually interacting
-      if (!_userInteractingWithMap) {
-        final now = DateTime.now();
-        if (_lastUserInteraction == null || 
-            now.difference(_lastUserInteraction!) > const Duration(seconds: 30)) {
-          await _mapController!.animateCamera(
-            CameraUpdate.newLatLngZoom(
-              LatLng(newPosition.latitude, newPosition.longitude),
-              17.0, // Slightly zoomed in for better tracking
-            ),
-          );
-        }
+      if (_shouldAutoZoom && _isTripStarted && !_hasReachedDestination) {
+        await _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(newPosition.latitude, newPosition.longitude),
+            MapConstants.liveLocationZoom,
+          ),
+        );
       }
     } catch (e) {
       print('Error updating bus position: $e');
@@ -2057,7 +2061,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       
       setState(() {
         _distanceRemaining = '${(distance / 1000).toStringAsFixed(1)} km';
-        _timeToDestination = '--:--'; // Speed removed, so ETA is not available
+        
+        if (_currentSpeed > 0) {
+          final timeInHours = distance / (_currentSpeed * 1000);
+          final hours = timeInHours.floor();
+          final minutes = ((timeInHours - hours) * 60).round();
+          _timeToDestination = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+        } else {
+          _timeToDestination = '--:--';
+        }
       });
     }
   }
@@ -2145,76 +2157,76 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (distance > MapConstants.villageDetectionRadius) return;
       if (_passedVillages.contains(villageName)) return;
 
-      // Add to passed villages set
-      _passedVillages.add(villageName);
-      
-      // Create a village crossing record
-      final now = DateTime.now();
-      final crossing = VillageCrossing(
-        name: villageName,
-        timestamp: now,
-        latitude: currentPosition.latitude,
-        longitude: currentPosition.longitude,
-      );
-      
-      // Add to the list of crossings
-      setState(() {
-        _villageCrossings.add(crossing);
-      });
-      
-      // Save to trip data if needed
-      _saveCrossingToTripData(crossing);
-      
-      // Show notification
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.location_city, color: Colors.green),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '🏁 You crossed $villageName',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
+          // Add to passed villages set
+          _passedVillages.add(villageName);
+          
+          // Create a village crossing record
+          final now = DateTime.now();
+          final crossing = VillageCrossing(
+            name: villageName,
+            timestamp: now,
+            latitude: currentPosition.latitude,
+            longitude: currentPosition.longitude,
+          );
+          
+          // Add to the list of crossings
+          setState(() {
+            _villageCrossings.add(crossing);
+          });
+          
+          // Save to trip data if needed
+          _saveCrossingToTripData(crossing);
+          
+          // Show notification
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.location_city, color: Colors.green),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '🏁 You crossed $villageName',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            'at ${crossing.formattedTime}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'at ${crossing.formattedTime}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            backgroundColor: Colors.white,
-            duration: const Duration(seconds: 4),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            margin: const EdgeInsets.all(10),
-            action: SnackBarAction(
-              label: 'VIEW LOG',
-              textColor: Theme.of(context).primaryColor,
-              onPressed: () {
-                setState(() {
-                  _showVillageCrossingLog = true;
-                });
-              },
-            ),
-          ),
-        );
+                backgroundColor: Colors.white,
+                duration: const Duration(seconds: 4),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                margin: const EdgeInsets.all(10),
+                action: SnackBarAction(
+                  label: 'VIEW LOG',
+                  textColor: Theme.of(context).primaryColor,
+                  onPressed: () {
+                    setState(() {
+                      _showVillageCrossingLog = true;
+                    });
+                  },
+                ),
+              ),
+            );
       }
     } catch (e) {
       print('Error checking village crossing: $e');
@@ -2312,8 +2324,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           left: 16,
           right: 16,
               child: _buildSearchBars(),
-            ),
-            
+        ),
+        
             // Location button
         Positioned(
           bottom: 200,
@@ -2445,8 +2457,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           ],
                           
                   const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () {
+                            ElevatedButton.icon(
+                              onPressed: () {
                       // Show Enter ID dialog or logic
                       showDialog(
                         context: context,
@@ -2458,7 +2470,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               // Save the ID or handle as needed
                               Navigator.pop(context);
                             },
-                          ),
+                            ),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(context),
@@ -2467,13 +2479,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           ],
                         ),
                       );
-                    },
+                            },
                     icon: const Icon(Icons.person),
                     label: const Text('Enter ID'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).primaryColor,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).primaryColor,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -2747,7 +2759,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   );
                 },
               ),
-            ),
+          ),
         ],
       ),
     );

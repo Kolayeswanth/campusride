@@ -22,7 +22,7 @@ class NavigationOverlay extends StatelessWidget {
           );
           final density = traffic['density'] as double;
           final color = _getTrafficColor(density);
-          
+
           return Positioned(
             left: position.longitude,
             top: position.latitude,
@@ -43,7 +43,7 @@ class NavigationOverlay extends StatelessWidget {
             alert['location']['lat'],
             alert['location']['lng'],
           );
-          
+
           return Positioned(
             left: position.longitude,
             top: position.latitude,
@@ -61,7 +61,7 @@ class NavigationOverlay extends StatelessWidget {
             camera['location']['lat'],
             camera['location']['lng'],
           );
-          
+
           return Positioned(
             left: position.longitude,
             top: position.latitude,
@@ -79,7 +79,7 @@ class NavigationOverlay extends StatelessWidget {
             zone['location']['lat'],
             zone['location']['lng'],
           );
-          
+
           return Positioned(
             left: position.longitude,
             top: position.latitude,
@@ -103,7 +103,8 @@ class NavigationOverlay extends StatelessWidget {
                 child: Row(
                   children: [
                     Icon(
-                      _getLaneGuidanceIcon(navigationService.currentLaneGuidance!['direction']),
+                      _getLaneGuidanceIcon(
+                          navigationService.currentLaneGuidance!['direction']),
                       size: 32,
                     ),
                     const SizedBox(width: 8),
@@ -143,4 +144,4 @@ class NavigationOverlay extends StatelessWidget {
         return Icons.directions;
     }
   }
-} 
+}

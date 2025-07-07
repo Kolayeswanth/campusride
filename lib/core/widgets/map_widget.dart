@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:geolocator/geolocator.dart';
@@ -11,14 +10,14 @@ class MapScreen extends StatefulWidget {
   final bool showControls;
   final Function(latlong2.LatLng)? onLocationSelected;
   final bool showCurrentLocation;
-  
+
   const MapScreen({
-    Key? key, 
+    Key? key,
     this.showControls = true,
     this.onLocationSelected,
     this.showCurrentLocation = true,
   }) : super(key: key);
-  
+
   @override
   _MapScreenState createState() => _MapScreenState();
 }
@@ -53,7 +52,8 @@ class _MapScreenState extends State<MapScreen> {
 
       final position = await Geolocator.getCurrentPosition();
       setState(() {
-        _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+        _currentLocation =
+            latlong2.LatLng(position.latitude, position.longitude);
         _isLoading = false;
       });
     } catch (e) {
@@ -66,17 +66,17 @@ class _MapScreenState extends State<MapScreen> {
     if (controller is MaplibreMapController) {
       mapController = controller;
     }
-    
+
     // Notify the map service about the controller
     if (mounted) {
       final mapService = Provider.of<MapService>(context, listen: false);
       mapService.onMapCreated(controller);
     }
   }
-  
+
   void _onMapClick(latlong2.LatLng location) {
     setState(() => _selectedLocation = location);
-    
+
     if (widget.onLocationSelected != null) {
       widget.onLocationSelected!(location);
     }
@@ -87,7 +87,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    
+
     return PlatformSafeMap(
       onMapCreated: _onMapCreated,
       initialCameraPosition: CameraPosition(

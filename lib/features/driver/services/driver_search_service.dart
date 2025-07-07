@@ -16,36 +16,37 @@ class DriverSearchService {
       onSearchResults([]);
       return;
     }
-    
+
     try {
-      final encodedQuery = Uri.encodeComponent(query);
+      final enhancedQuery = '$query, Andhra Pradesh, India';
+      final encodedQuery = Uri.encodeComponent(enhancedQuery);
+      
       final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/search?q=$encodedQuery&format=json&countrycodes=in&limit=10&addressdetails=1'
-      );
-      
-      final response = await http.get(
-        url,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'CampusRide/1.0',
-        }
-      );
-      
+          'https://nominatim.openstreetmap.org/search?q=$encodedQuery&format=json&countrycodes=in&state=Andhra%20Pradesh&limit=10&addressdetails=1');
+
+      final response = await http.get(url, headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'CampusRide/1.0',
+      });
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        
+
         if (data.isEmpty) {
           onSearchResults([]);
           return;
         }
-        
+
         final results = data.map((place) {
           final address = place['address'] as Map<String, dynamic>;
           final city = address['city'] ?? address['town'] ?? address['village'] ?? '';
           final state = address['state'] ?? '';
+          final district = address['county'] ?? '';
+          
           final displayName = [
             place['name'] ?? '',
             city,
+            district,
             state,
           ].where((s) => s.isNotEmpty).join(', ');
 
@@ -57,10 +58,15 @@ class DriverSearchService {
             'type': place['type'] ?? 'place',
             'city': city,
             'state': state,
+            'district': district,
           };
         }).toList();
 
-        onSearchResults(results);
+        final filteredResults = results.where((result) {
+          return result['state'].toString().toLowerCase().contains('andhra pradesh');
+        }).toList();
+
+        onSearchResults(filteredResults);
       } else {
         throw Exception('Failed to search location');
       }
@@ -73,19 +79,17 @@ class DriverSearchService {
 
   Future<latlong2.LatLng?> getCoordinatesFromAddress(String address) async {
     try {
-      final encodedAddress = Uri.encodeComponent(address);
+      final enhancedAddress = '$address, Andhra Pradesh, India';
+      final encodedAddress = Uri.encodeComponent(enhancedAddress);
+      
       final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/search?q=$encodedAddress&format=json&limit=1'
-      );
-      
-      final response = await http.get(
-        url,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'CampusRide/1.0',
-        }
-      );
-      
+          'https://nominatim.openstreetmap.org/search?q=$encodedAddress&format=json&countrycodes=in&state=Andhra%20Pradesh&limit=1');
+
+      final response = await http.get(url, headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'CampusRide/1.0',
+      });
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         if (data.isNotEmpty) {
@@ -102,4 +106,4 @@ class DriverSearchService {
       return null;
     }
   }
-} 
+}

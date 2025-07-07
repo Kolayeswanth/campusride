@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/trip_service.dart';
-import '../../../core/theme/theme.dart';
 import '../../../shared/widgets/widgets.dart';
 import 'bus_tracking_screen.dart';
 
@@ -41,7 +40,7 @@ class _BusSearchScreenState extends State<BusSearchScreen> {
     try {
       final tripService = Provider.of<TripService>(context, listen: false);
       final results = await tripService.searchBuses(query);
-      
+
       setState(() {
         _searchResults = results;
         _isLoading = false;
@@ -128,12 +127,14 @@ class _BusSearchScreenState extends State<BusSearchScreen> {
                                       ? const Chip(
                                           label: Text('Active'),
                                           backgroundColor: Colors.green,
-                                          labelStyle: TextStyle(color: Colors.white),
+                                          labelStyle:
+                                              TextStyle(color: Colors.white),
                                         )
                                       : const Chip(
                                           label: Text('Inactive'),
                                           backgroundColor: Colors.grey,
-                                          labelStyle: TextStyle(color: Colors.white),
+                                          labelStyle:
+                                              TextStyle(color: Colors.white),
                                         ),
                                   onTap: () {
                                     Navigator.push(
@@ -155,4 +156,4 @@ class _BusSearchScreenState extends State<BusSearchScreen> {
       ),
     );
   }
-} 
+}

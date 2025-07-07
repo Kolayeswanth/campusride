@@ -77,4 +77,4 @@ class _BusListScreenState extends State<BusListScreen> {
       ),
     );
   }
-} 
+}

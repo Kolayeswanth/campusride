@@ -38,7 +38,8 @@ class DriverLocationService {
     }
   }
 
-  void updateSpeed(Position newPosition, Position? lastPosition, DateTime? lastPositionTime) {
+  void updateSpeed(Position newPosition, Position? lastPosition,
+      DateTime? lastPositionTime) {
     if (lastPosition != null && lastPositionTime != null) {
       final distance = Geolocator.distanceBetween(
         lastPosition.latitude,
@@ -46,7 +47,7 @@ class DriverLocationService {
         newPosition.latitude,
         newPosition.longitude,
       );
-      
+
       final timeDiff = DateTime.now().difference(lastPositionTime).inSeconds;
       if (timeDiff > 0) {
         final speedInMetersPerSecond = distance / timeDiff;
@@ -73,25 +74,26 @@ class DriverLocationService {
         'continue_straight': true
       };
 
-      final orsApiKey = dotenv.env['ORS_API_KEY'] ?? '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
-      
+      final orsApiKey = dotenv.env['ORS_API_KEY'] ??
+          '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
+
       final response = await http.post(
-        Uri.parse('https://api.openrouteservice.org/v2/directions/driving-car/geojson'),
-        headers: {
-          'Authorization': orsApiKey,
-          'Content-Type': 'application/json; charset=utf-8',
-          'Accept': 'application/json, application/geo+json'
-        },
-        body: json.encode(requestBody)
-      );
+          Uri.parse(
+              'https://api.openrouteservice.org/v2/directions/driving-car/geojson'),
+          headers: {
+            'Authorization': orsApiKey,
+            'Content-Type': 'application/json; charset=utf-8',
+            'Accept': 'application/json, application/geo+json'
+          },
+          body: json.encode(requestBody));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data['features'] != null && 
-            data['features'].isNotEmpty && 
+        if (data['features'] != null &&
+            data['features'].isNotEmpty &&
             data['features'][0]['geometry'] != null) {
-          
-          final coordinates = data['features'][0]['geometry']['coordinates'] as List;
+          final coordinates =
+              data['features'][0]['geometry']['coordinates'] as List;
           final routePoints = coordinates.map((coord) {
             return latlong2.LatLng(coord[1] as double, coord[0] as double);
           }).toList();
@@ -107,12 +109,13 @@ class DriverLocationService {
     }
   }
 
-  bool hasDeviatedFromRoute(Position currentPosition, List<latlong2.LatLng> routePoints) {
+  bool hasDeviatedFromRoute(
+      Position currentPosition, List<latlong2.LatLng> routePoints) {
     if (routePoints.isEmpty) return false;
-    
+
     const deviationThreshold = 50.0; // meters
     double minDistance = double.infinity;
-    
+
     for (final point in routePoints) {
       final distance = Geolocator.distanceBetween(
         currentPosition.latitude,
@@ -122,7 +125,7 @@ class DriverLocationService {
       );
       minDistance = min(minDistance, distance);
     }
-    
+
     return minDistance > deviationThreshold;
   }
 
@@ -137,4 +140,4 @@ class DriverLocationService {
       destination.longitude,
     );
   }
-} 
+}

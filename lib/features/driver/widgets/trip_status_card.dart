@@ -52,7 +52,8 @@ class TripStatusCard extends StatelessWidget {
               controller: driverIdController,
               decoration: const InputDecoration(
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               ),
               onSubmitted: onDriverIdChanged,
             ),
@@ -115,4 +116,4 @@ class TripStatusCard extends StatelessWidget {
       ],
     );
   }
-} 
+}

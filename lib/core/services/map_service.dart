@@ -462,18 +462,18 @@ class MapService extends ChangeNotifier {
       ),
     ).listen(
       (Position position) {
-        _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+      _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
         // Debounce marker updates to reduce UI work
         if (_lastMarkerUpdate == null || 
             DateTime.now().difference(_lastMarkerUpdate!) > const Duration(milliseconds: 500)) {
-          updateUserLocationMarker(position);
+      updateUserLocationMarker(position);
           _lastMarkerUpdate = DateTime.now();
         }
         notifyListeners();
       },
       onError: (error) {
         _error = 'Location update error: $error';
-        notifyListeners();
+      notifyListeners();
       },
     );
   }
