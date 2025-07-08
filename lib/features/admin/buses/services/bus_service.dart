@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:typed_data';
 import '../models/bus.dart';
-import '../../../core/utils/logger_util.dart';
+import '../../../../core/utils/logger_util.dart';
 
 class BusService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;

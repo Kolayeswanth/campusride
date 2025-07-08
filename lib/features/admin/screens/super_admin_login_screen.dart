@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:campusride/core/theme/app_colors.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/services/auth_service.dart';
 
@@ -32,9 +31,10 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.loginSuperAdmin(
+      await authService.signInWithEmailAndRole(
         _emailController.text.trim(),
         _passwordController.text.trim(),
+        'super_admin',
       );
 
       if (!mounted) return;

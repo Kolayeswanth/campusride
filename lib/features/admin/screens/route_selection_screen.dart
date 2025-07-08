@@ -208,7 +208,7 @@ class _RouteSelectionScreenState extends State<RouteSelectionScreen> {
               target: LatLng(17.3850, 78.4867), // Default to Hyderabad
               zoom: 12,
             ),
-            styleString: 'https://tiles.locationiq.com/v3/streets/vector.json?key=${dotenv.env['LOCATIONIQ_API_KEY']}',
+            styleString: 'https://api.maptiler.com/maps/streets/style.json?key=${dotenv.env['MAPTILER_API_KEY']}',
             onMapClick: (point, coordinates) => _debounceMapClick(coordinates),
             gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
             minMaxZoomPreference: const MinMaxZoomPreference(5, 18),

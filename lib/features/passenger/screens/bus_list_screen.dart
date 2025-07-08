@@ -64,7 +64,7 @@ class _BusListScreenState extends State<BusListScreen> {
                       MaterialPageRoute(
                         builder: (context) => BusTrackingScreen(
                           busId: bus.busId,
-                          routeId: bus.routeId,
+                          routeId: bus.routeId ?? '',
                         ),
                       ),
                     );

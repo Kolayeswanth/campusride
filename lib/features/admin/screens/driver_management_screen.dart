@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:campusride/core/theme/app_colors.dart';
 import '../models/college.dart';
-import '../models/driver.dart';
-import '../services/driver_service.dart';
+import '../drivers/models/driver.dart';
+import '../drivers/services/driver_service.dart';
 import '../screens/driver_tracking_screen.dart';
 
 class DriverManagementScreen extends StatefulWidget {
@@ -37,11 +37,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             icon: const Icon(Icons.map),
             tooltip: 'Track Drivers',
             onPressed: () {
-              final drivers = context.read<DriverService>().drivers;
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => DriverTrackingScreen(drivers: drivers),
+                  builder: (_) => const DriverTrackingScreen(),
                 ),
               );
             },
@@ -76,7 +75,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             );
           }
 
-          if (service.drivers.isEmpty) {
+          final List<Driver> driverList = service.getDriversForCollege(widget.college.id);
+          
+          if (driverList.isEmpty) {
             return const Center(
               child: Text('No drivers found'),
             );
@@ -84,9 +85,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: service.drivers.length,
+            itemCount: driverList.length,
             itemBuilder: (context, index) {
-              final driver = service.drivers[index];
+              final driver = driverList[index];
               return _DriverCard(
                 driver: driver,
                 onToggle: (isActive) {
@@ -176,9 +177,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                   id: DateTime.now().millisecondsSinceEpoch.toString(),
                   name: nameController.text,
                   phone: phoneController.text,
-                  license: licenseController.text,
+                  licenseNumber: licenseController.text,
                   isActive: false,
-                  createdAt: DateTime.now(),
+                  currentCollegeId: widget.college.id,
                 );
                 context.read<DriverService>().addDriver(driver);
                 Navigator.pop(context);
@@ -270,7 +271,7 @@ class _DriverCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
-                'License: ${driver.license}',
+                'License: ${driver.licenseNumber ?? 'N/A'}',
                 style: const TextStyle(
                   color: AppColors.primary,
                 ),

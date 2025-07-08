@@ -182,4 +182,8 @@ class RouteService extends ChangeNotifier {
       rethrow;
     }
   }
+
+  List<Route> getRoutesForCollege(String collegeId) {
+    return _routes.where((route) => route.collegeId == collegeId).toList();
+  }
 }

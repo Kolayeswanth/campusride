@@ -29,8 +29,8 @@ class _BusFormScreenState extends State<BusFormScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.bus != null) {
-      _vehicleIdController.text = widget.bus!.vehicleId;
+    if (widget.bus != null && widget.bus!.vehicleId != null) {
+      _vehicleIdController.text = widget.bus!.vehicleId!;
     }
   }
 
@@ -86,6 +86,8 @@ class _BusFormScreenState extends State<BusFormScreen> {
         isActive: widget.bus?.isActive ?? true,
         createdAt: widget.bus?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
+        busNumber: widget.bus?.busNumber ?? _vehicleIdController.text,
+        capacity: widget.bus?.capacity ?? 30, // Default capacity if not provided
       );
 
       if (widget.bus == null) {

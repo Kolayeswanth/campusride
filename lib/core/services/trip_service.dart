@@ -1,15 +1,13 @@
 import 'dart:async';
-import 'dart:math' show Random, sin, cos, pi;
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb, ChangeNotifier;
+import 'dart:convert';
+import 'dart:math' show sin, cos, pi;
+import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'geocoding_service.dart';
 import '../constants/map_constants.dart';
 
@@ -51,14 +49,15 @@ class TripService with ChangeNotifier {
   bool _isTracking = false;
   String? _error;
   StreamSubscription<Position>? _positionSubscription;
-  double _routeDistance = 0.0;
-  double _routeDuration = 0.0;
   String? _lastCrossedVillage;
   bool _showVillageNotification = false;
   String? _villageNotificationMessage;
   Timer? _notificationTimer;
   final Set<String> _crossedVillages = {}; // Track crossed villages to prevent duplicates
 
+  // List to store trip history
+  final List<dynamic> _tripHistory = [];
+  
   List<BusRoute> get routes => _routes;
   BusRoute? get selectedRoute => _selectedRoute;
   latlong2.LatLng? get currentLocation => _currentLocation;
@@ -67,6 +66,9 @@ class TripService with ChangeNotifier {
   Map<String, String> get crossedVillages => _geocodingService.crossedVillages;
   bool get showVillageNotification => _showVillageNotification;
   String? get villageNotificationMessage => _villageNotificationMessage;
+
+  // Getter for trip history
+  List<dynamic> get tripHistory => _tripHistory;
 
   Future<void> loadRoutes() async {
     try {
@@ -141,7 +143,6 @@ class TripService with ChangeNotifier {
         
         // Get the village center
         final villageCenter = await _geocodingService.getVillageCenter(villageName);
-        if (villageCenter == null) return;
         
         // Calculate distance to village center
         final distance = const latlong2.Distance().distance(
@@ -260,14 +261,7 @@ class TripService with ChangeNotifier {
             .map<latlong2.LatLng>((coord) => latlong2.LatLng(coord[1], coord[0]))
             .toList();
             
-        // Store route metadata
-        final summary = data['features'][0]['properties']['summary'];
-        final distance = summary['distance'] as double;
-        final duration = summary['duration'] as double;
-        
-        // Notify listeners about the route details
-        _routeDistance = distance;
-        _routeDuration = duration;
+        // Route calculated successfully
         notifyListeners();
         
         return routePoints;
@@ -323,10 +317,6 @@ class TripService with ChangeNotifier {
           .select('*')
           .eq('id', routeId)
           .single();
-      
-      if (routeResponse == null) {
-        throw Exception('Route not found');
-      }
       
       // Fetch stops for this route
       final stopsResponse = await _supabase
@@ -421,7 +411,6 @@ class TripService with ChangeNotifier {
       if (villageName != null) {
         // Get the village center
         final villageCenter = await _geocodingService.getVillageCenter(villageName);
-        if (villageCenter == null) return null;
         
         // Calculate distance to village center
         final distance = const latlong2.Distance().distance(

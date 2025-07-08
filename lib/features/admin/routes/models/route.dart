@@ -10,6 +10,8 @@ class Route {
   final DateTime updatedAt;
   final String? collegeId;
   final String? driverId;
+  final String? name;
+  final String? description;
 
   Route({
     required this.id,
@@ -21,6 +23,8 @@ class Route {
     required this.updatedAt,
     this.collegeId,
     this.driverId,
+    this.name,
+    this.description,
   });
 
   factory Route.fromJson(Map<String, dynamic> json) {
@@ -34,6 +38,8 @@ class Route {
       updatedAt: DateTime.parse(json['updated_at'] as String),
       collegeId: json['college_id'] as String?,
       driverId: json['driver_id'] as String?,
+      name: json['name'] as String?,
+      description: json['description'] as String?,
     );
   }
 
@@ -48,6 +54,8 @@ class Route {
       'updated_at': updatedAt.toIso8601String(),
       'college_id': collegeId,
       'driver_id': driverId,
+      'name': name,
+      'description': description,
     };
   }
 

@@ -10,6 +10,11 @@ class Bus {
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? vehicleId;
+  final String? collegeId;
+  final String? photoUrl;
+  final String? routeId;
+  final String? driverId;
 
   Bus({
     required this.id,
@@ -21,6 +26,11 @@ class Bus {
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
+    this.vehicleId,
+    this.collegeId,
+    this.photoUrl,
+    this.routeId,
+    this.driverId,
   });
 
   factory Bus.fromJson(Map<String, dynamic> json) {
@@ -36,6 +46,11 @@ class Bus {
       isActive: json['is_active'] as bool,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
+      vehicleId: json['vehicle_id'] as String?,
+      collegeId: json['college_id'] as String?,
+      photoUrl: json['photo_url'] as String?,
+      routeId: json['route_id'] as String?,
+      driverId: json['driver_id'] as String?,
     );
   }
 
@@ -50,6 +65,11 @@ class Bus {
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
+      'vehicle_id': vehicleId,
+      'college_id': collegeId,
+      'photo_url': photoUrl,
+      'route_id': routeId,
+      'driver_id': driverId,
     };
   }
 

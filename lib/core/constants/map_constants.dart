@@ -23,6 +23,8 @@ class MapConstants {
   static const double defaultBorderRadius = 12.0;
   static const double defaultPadding = 16.0;
   static const double defaultMargin = 8.0;
+  static const double notificationBorderRadius = 12.0;
+  static const EdgeInsets notificationPadding = EdgeInsets.all(16.0);
   
   // Colors
   static const Color notificationBackground = Color(0xFF333333);

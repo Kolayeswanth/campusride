@@ -31,13 +31,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
     try {
       final tripService = Provider.of<TripService>(context, listen: false);
+      print('Loading driver routes...');
       final routes = await tripService.fetchDriverRoutes();
+      print('Routes loaded: ${routes.length}');
       
       setState(() {
         _routes = routes;
         _isLoading = false;
       });
     } catch (e) {
+      print('Error loading routes: $e');
       setState(() {
         _error = 'Error loading routes: $e';
         _isLoading = false;
@@ -64,6 +67,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    print('DriverHomeScreen build called - isLoading: $_isLoading, error: $_error, routes: ${_routes.length}');
+    
     if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -102,7 +107,36 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             )
           : RefreshIndicator(
               onRefresh: _loadRoutes,
-              child: ListView.builder(
+              child: _routes.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.route,
+                            size: 64,
+                            color: Colors.grey,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'No routes available',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Pull to refresh or contact your administrator',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: _routes.length,
                 itemBuilder: (context, index) {

@@ -7,6 +7,7 @@ import '../../../core/services/trip_service.dart';
 import '../../../shared/widgets/widgets.dart';
 import 'bus_tracking_screen.dart';
 import 'bus_search_screen.dart';
+import '../../auth/screens/profile_screen.dart';
 
 /// PassengerHomeScreen is the main screen for passenger users.
 /// It shows nearby buses, allows searching for routes, and displays a map.
@@ -443,9 +444,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
+          if (index == 3) { // Profile tab
+            // Navigate to profile screen
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ProfileScreen(),
+              ),
+            );
+          } else {
+            setState(() {
+              _currentIndex = index;
+            });
+          }
         },
         items: const [
           BottomNavigationBarItem(

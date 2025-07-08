@@ -126,6 +126,31 @@ class LocationService extends ChangeNotifier {
     return math.atan2(y, x);
   }
 
+  /// Get the current position once
+  Future<Position> getCurrentPosition() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        final requested = await Geolocator.requestPermission();
+        if (requested == LocationPermission.denied) {
+          throw Exception('Location permissions are required');
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permissions are permanently denied');
+      }
+      
+      final position = await Geolocator.getCurrentPosition();
+      _currentPosition = position;
+      return position;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      throw Exception('Could not get current location: $e');
+    }
+  }
+
   @override
   void dispose() {
     _positionStream?.cancel();

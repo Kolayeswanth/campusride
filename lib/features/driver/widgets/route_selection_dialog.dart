@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart' as geo; // Import with alias
-import '../../../core/services/trip_service.dart';
+import '../../../core/services/trip_service.dart'; // Import with BusRoute
 import '../../../core/services/location_service.dart';
-import '../../../core/services/map_service.dart'; // Import MapService
-import '../../../core/models/route.dart';
 
 class RouteSelectionDialog extends StatefulWidget {
   final TripService tripService;
@@ -68,9 +65,7 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
           width: 40.0,
           height: 40.0,
           point: _currentLocation!,
-          builder: (ctx) => Container(
-            child: const Icon(Icons.location_pin, color: Colors.blue),
-          ),
+          child: const Icon(Icons.location_pin, color: Colors.blue),
         ),
       );
     }
@@ -81,9 +76,7 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
           width: 40.0,
           height: 40.0,
           point: _selectedDestination!,
-          builder: (ctx) => Container(
-            child: const Icon(Icons.pin_drop, color: Colors.red),
-          ),
+          child: const Icon(Icons.pin_drop, color: Colors.red),
         ),
       );
     }
@@ -95,9 +88,9 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
         _isLoading = true;
         _error = null;
       });
-      final routes = await widget.tripService.loadRoutes();
+      final routes = await widget.tripService.fetchDriverRoutes();
       setState(() {
-        _routes = routes.map((e) => e as BusRoute).toList(); // Cast routes
+        _routes = routes;
         _isLoading = false;
       });
     } catch (e) {
@@ -216,8 +209,8 @@ class _RouteSelectionDialogState extends State<RouteSelectionDialog> {
                                         mapController:
                                             _mapController, // Use controller instance
                                         options: MapOptions(
-                                          center: _currentLocation!,
-                                          zoom: 15,
+                                          initialCenter: _currentLocation!,
+                                          initialZoom: 15,
                                           onTap: (tapPosition, point) {
                                             setState(() {
                                               _selectedDestination = point;

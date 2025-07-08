@@ -8,7 +8,6 @@ import 'package:latlong2/latlong.dart' as latlong2;
 import 'offline_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'navigation_service.dart';
-import '../utils/logger_util.dart';
 
 const double kAutoFollowZoom = 17.0; // Consistent zoom level for auto-follow
 
@@ -19,7 +18,6 @@ class MapService extends ChangeNotifier {
   final List<String> _routeIds = [];
   final List<Symbol> _symbols = [];
   final List<Line> _lines = [];
-  final latlong2.LatLng _initialPosition = const latlong2.LatLng(0, 0);
   bool _isMapLoaded = false;
   bool _isFollowingUser = true;
   latlong2.LatLng? _currentLocation;

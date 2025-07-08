@@ -4,10 +4,8 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../shared/widgets/widgets.dart';
-import '../../../shared/animations/animations.dart';
-import 'register_screen.dart';
+import 'unified_registration_screen.dart';
 import 'forgot_password_screen.dart';
-import 'role_selection_screen.dart';
 
 /// LoginScreen handles user authentication via email/password
 /// or social logins like Google.
@@ -46,18 +44,15 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (authService.error == null && authService.isAuthenticated) {
-      // Successfully signed in - navigate based on role
-      if (authService.needsRoleSelection) {
-        // User hasn't selected a role yet
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context,
-          const RoleSelectionScreen(),
-        );
-      } else if (authService.userRole == 'driver') {
-        // User is a driver
-        Navigator.of(context).pushReplacementNamed('/driver_dashboard');
+      // Navigate based on user's actual role from their profile
+      final userRole = authService.userRole;
+      
+      if (userRole == 'driver') {
+        Navigator.of(context).pushReplacementNamed('/driver_home');
+      } else if (userRole == 'admin' || userRole == 'super_admin') {
+        Navigator.of(context).pushReplacementNamed('/admin_dashboard');
       } else {
-        // User is a passenger
+        // Default to passenger home for 'user' role
         Navigator.of(context).pushReplacementNamed('/passenger_home');
       }
     }
@@ -89,14 +84,46 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Header section
                 Text(
-                  'Welcome Back!',
+                  'Sign In',
                   style: AppTypography.displaySmall,
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Sign in to continue to CampusRide',
+                  'Welcome back! Sign in to access your CampusRide account',
                   style: AppTypography.bodyLarge.copyWith(
                     color: AppColors.textSecondary,
+                  ),
+                ),
+
+                SizedBox(height: screenSize.height * 0.04),
+
+                // Info section about roles
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.primaryLight.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Your dashboard will be based on your account type. New users start as passengers and can request driver access from their profile.',
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -220,13 +247,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
 
                       // Sign in button
-                      CustomButton(
-                        text: 'Sign In',
-                        onPressed: _signInWithEmail,
-                        isLoading: authService.isLoading,
-                        isFullWidth: true,
-                        size: ButtonSize.large,
-                        prefixIcon: Icons.login,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CustomButton(
+                              text: 'Sign In',
+                              onPressed: _signInWithEmail,
+                              isLoading: authService.isLoading,
+                              isFullWidth: true,
+                              size: ButtonSize.large,
+                              prefixIcon: Icons.login,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -274,82 +307,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 SizedBox(height: screenSize.height * 0.04),
 
-                // Driver login section
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: AppColors.primaryLight,
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.drive_eta_rounded,
-                            color: AppColors.primary,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Driver Sign In',
-                            style: AppTypography.titleMedium.copyWith(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'College bus drivers can sign in here to manage trips and share location with passengers',
-                        style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      CustomButton(
-                        text: 'Driver Sign In',
-                        onPressed: _signInAsDriver,
-                        prefixIcon: Icons.drive_eta_rounded,
-                        isFullWidth: true,
-                      ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: TextButton(
-                          onPressed: () {
-                            Navigator.of(context)
-                                .pushNamed('/driver_verification');
-                          },
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.verified_user_outlined,
-                                size: 16,
-                                color: AppColors.primary,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Check Verification Status',
-                                style: AppTypography.bodySmall.copyWith(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
                 // Register link
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
@@ -373,7 +330,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) =>
-                                        const RegisterScreen(),
+                                        const UnifiedRegistrationScreen(),
                                   ),
                                 );
                               },
@@ -389,33 +346,5 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     );
-  }
-
-  /// Handles the driver login process
-  Future<void> _signInAsDriver() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final authService = Provider.of<AuthService>(context, listen: false);
-
-    // Sign in with email/password
-    await authService.signInWithEmail(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
-
-    if (!mounted) return;
-
-    // If successfully signed in
-    if (authService.error == null && authService.isAuthenticated) {
-      // Automatically set role to 'driver'
-      await authService.updateUserRole('driver');
-
-      if (!mounted) return;
-
-      // Navigate to driver dashboard if no error setting role
-      if (authService.error == null) {
-        Navigator.of(context).pushReplacementNamed('/driver_dashboard');
-      }
-    }
   }
 }

@@ -26,7 +26,7 @@ class _DriverListScreenState extends State<DriverListScreen> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => DriverFormScreen(college: widget.college),
+        builder: (context) => DriverFormScreen(collegeId: widget.college.id),
       ),
     );
     if (result == true) {
@@ -39,7 +39,7 @@ class _DriverListScreenState extends State<DriverListScreen> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => DriverFormScreen(college: widget.college, driver: driver),
+        builder: (context) => DriverFormScreen(collegeId: widget.college.id, driver: driver),
       ),
     );
     if (result == true) {
@@ -171,9 +171,10 @@ class DriverListTile extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(driver.email),
+            if (driver.email != null) Text(driver.email!),
             Text(driver.phone),
-            Text('Vehicle: ${driver.vehicleModel} (${driver.vehicleNumber})'),
+            if (driver.vehicleModel != null && driver.vehicleNumber != null)
+              Text('Vehicle: ${driver.vehicleModel} (${driver.vehicleNumber})'),
           ],
         ),
         trailing: PopupMenuButton(
@@ -357,14 +358,14 @@ class _AddDriverDialogState extends State<AddDriverDialog> {
   void _submitForm() {
     if (_formKey.currentState?.validate() ?? false) {
       final driver = Driver(
-        id: '', // Will be set by Firestore
+        id: '', // Will be set by backend
         name: _nameController.text,
-        email: _emailController.text,
         phone: _phoneController.text,
+        isActive: true,
+        email: _emailController.text,
         licenseNumber: _licenseController.text,
         vehicleNumber: _vehicleNumberController.text,
         vehicleModel: _vehicleModelController.text,
-        createdAt: DateTime.now(),
       );
 
       DriverService().addDriver(driver);
@@ -490,7 +491,13 @@ class _EditDriverDialogState extends State<EditDriverDialog> {
         vehicleModel: _vehicleModelController.text,
       );
 
-      DriverService().updateDriver(updatedDriver);
+      DriverService().updateDriver(
+        id: updatedDriver.id,
+        name: updatedDriver.name,
+        phone: updatedDriver.phone,
+        isActive: updatedDriver.isActive,
+        currentCollegeId: updatedDriver.currentCollegeId,
+      );
       Navigator.pop(context);
     }
   }

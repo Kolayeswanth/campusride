@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/services/offline_service.dart';
-import '../../../core/services/map_service.dart';
+import '../../../core/services/maptiler_service.dart';
 
 class OfflineSettingsScreen extends StatefulWidget {
   const OfflineSettingsScreen({Key? key}) : super(key: key);
@@ -13,9 +12,34 @@ class OfflineSettingsScreen extends StatefulWidget {
 
 class _OfflineSettingsScreenState extends State<OfflineSettingsScreen> {
   final OfflineService _offlineService = OfflineService();
+  final MapTilerService _mapService = MapTilerService();
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
   String _downloadStatus = '';
+  bool _isApiKeyValid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _validateMapBoxApiKey();
+  }
+
+  Future<void> _validateMapBoxApiKey() async {
+    final isValid = await _mapService.validateApiKey();
+    setState(() {
+      _isApiKeyValid = isValid;
+    });
+    if (!isValid) {
+      _showError('Invalid MapTiler API key. Please check your configuration.');
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
 
   Future<void> _downloadOfflineMap() async {
     setState(() {
@@ -25,19 +49,34 @@ class _OfflineSettingsScreenState extends State<OfflineSettingsScreen> {
     });
 
     try {
-      final mapService = Provider.of<MapService>(context, listen: false);
-
       // Define the campus area bounds
       final campusBounds = [
         const LatLng(33.7749, -84.3963), // Southwest corner
         const LatLng(33.7763, -84.3949), // Northeast corner
       ];
 
-      // Save offline map region
+      if (!_isApiKeyValid) {
+        throw Exception('MapTiler API key is not valid. Please configure it first.');
+      }
+
+      // Calculate center point for the campus area
+      final center = LatLng(
+        (campusBounds[0].latitude + campusBounds[1].latitude) / 2,
+        (campusBounds[0].longitude + campusBounds[1].longitude) / 2,
+      );
+
+      // Get static map for the region
+      final staticMapUrl = _mapService.getStaticMapUrl(
+        center: center,
+        zoom: 15,
+        width: 1280, // Higher resolution for offline use
+        height: 1280,
+      );
+
       await _offlineService.saveOfflineMapRegion(
         regionId: 'campus_area',
         bounds: campusBounds,
-        mapStyle: 'mapbox://styles/mapbox/streets-v11',
+        mapStyle: staticMapUrl,
       );
 
       setState(() {

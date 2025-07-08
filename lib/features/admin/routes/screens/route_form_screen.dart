@@ -504,7 +504,7 @@ class _RouteFormScreenState extends State<RouteFormScreen> {
                       target: LatLng(17.3850, 78.4867),
                       zoom: 12,
                     ),
-                    styleString: 'https://tiles.locationiq.com/v3/streets/vector.json?key=${dotenv.env['LOCATIONIQ_API_KEY']}',
+                    styleString: 'https://api.maptiler.com/maps/streets/style.json?key=${dotenv.env['MAPTILER_API_KEY']}',
                   ),
                   if (_isLoading)
                     const Center(child: CircularProgressIndicator()),

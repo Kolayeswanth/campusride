@@ -11,6 +11,7 @@ class BusInfo {
   final String routeNumber;
   final int availableSeats;
   final DateTime lastUpdated;
+  final String? routeId;
 
   BusInfo({
     required this.busId,
@@ -23,6 +24,7 @@ class BusInfo {
     required this.routeNumber,
     required this.availableSeats,
     required this.lastUpdated,
+    this.routeId,
   });
 
   factory BusInfo.fromJson(Map<String, dynamic> json) {
@@ -40,6 +42,7 @@ class BusInfo {
       lastUpdated: json['last_updated'] != null
           ? DateTime.parse(json['last_updated'])
           : DateTime.now(),
+      routeId: json['route_id'],
     );
   }
 }

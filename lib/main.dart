@@ -4,21 +4,26 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/logger_util.dart';
+import 'core/utils/database_fixer.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/map_service.dart';
 import 'core/services/trip_service.dart';
 import 'core/services/navigation_service.dart';
+import 'core/services/route_management_service.dart';
 import 'features/admin/services/super_admin_service.dart';
 import 'features/admin/drivers/services/driver_service.dart';
 import 'features/admin/routes/services/route_service.dart';
 import 'features/admin/services/driver_location_service.dart';
 import 'features/admin/colleges/services/college_service.dart';
-import 'features/admin/screens/super_admin_login_screen.dart';
 import 'features/admin/colleges/screens/college_list_screen.dart';
+import 'features/admin/screens/super_admin_login_screen.dart';
+import 'features/admin/screens/super_admin_dashboard_screen.dart';
 import 'features/driver/screens/driver_home_screen.dart';
-import 'features/auth/screens/login_screen.dart';
-import 'features/auth/screens/role_selection_screen.dart';
+import 'features/passenger/screens/passenger_home_screen.dart';
+import 'features/auth/screens/unified_login_screen.dart';
+import 'features/auth/screens/unified_registration_screen.dart';
 import 'features/auth/screens/welcome_screen.dart';
+import 'features/auth/widgets/auth_wrapper.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,12 +48,18 @@ Future<void> main() async {
     await Supabase.initialize(
       url: supabaseUrl,
       anonKey: supabaseKey,
+      debug: true, // Enable debug mode
     );
     LoggerUtil.info('Supabase initialized successfully');
+    
+    // Fix any database inconsistencies
+    await DatabaseFixer.fixDatabaseIssues();
+    
     runApp(const MyApp());
   } catch (e) {
     LoggerUtil.fatal('Error initializing Supabase: $e');
-    rethrow;
+    // Continue with app initialization even if Supabase fails initially
+    runApp(const MyApp());
   }
 }
 
@@ -67,6 +78,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => RouteService(supabase),
         ),
+        ChangeNotifierProvider(create: (_) => RouteManagementService()),
         ChangeNotifierProvider(create: (_) => DriverLocationService()),
         ChangeNotifierProvider(create: (_) => CollegeService()),
         ChangeNotifierProvider(create: (_) => MapService()),
@@ -79,11 +91,14 @@ class MyApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         initialRoute: '/',
         routes: {
-          '/': (context) => const SuperAdminLoginScreen(),
+          '/': (context) => const AuthWrapper(),
+          '/login': (context) => const UnifiedLoginScreen(),
+          '/register': (context) => const UnifiedRegistrationScreen(),
+          '/admin/login': (context) => const SuperAdminLoginScreen(),
+          '/admin/dashboard': (context) => const SuperAdminDashboardScreen(),
           '/admin/colleges': (context) => const CollegeListScreen(),
           '/driver_home': (context) => const DriverHomeScreen(),
-          '/login': (context) => const LoginScreen(),
-          '/role_selection': (context) => const RoleSelectionScreen(),
+          '/passenger_home': (context) => const PassengerHomeScreen(),
           '/welcome': (context) => const WelcomeScreen(),
         },
       ),

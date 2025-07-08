@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'dart:async';
 import '../../../core/theme/theme.dart';
 import '../../../shared/widgets/widgets.dart';
-import 'login_screen.dart';
-import 'register_screen.dart';
-import '../../../features/debug/debug_screen.dart';
+import 'unified_login_screen.dart';
+import 'unified_registration_screen.dart';
 
 /// WelcomeScreen is the first screen users see when they open the app
 /// for the first time. It introduces the app and provides options to
@@ -17,9 +17,12 @@ class WelcomeScreen extends StatefulWidget {
 }
 
 class _WelcomeScreenState extends State<WelcomeScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  AnimationController? _progressController;
+  Timer? _adminAccessTimer;
+  bool _isAdminAccessActive = false;
 
   @override
   void initState() {
@@ -27,6 +30,11 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
+    );
+
+    _progressController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 5),
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -42,7 +50,41 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   @override
   void dispose() {
     _animationController.dispose();
+    _progressController?.dispose();
+    _adminAccessTimer?.cancel();
     super.dispose();
+  }
+
+  void _startAdminAccessTimer() {
+    _adminAccessTimer?.cancel();
+    _progressController?.reset();
+    setState(() {
+      _isAdminAccessActive = true;
+    });
+    
+    _progressController?.forward();
+    
+    _adminAccessTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) {
+        // Navigate to admin login screen after 5 seconds
+        Navigator.pushNamed(context, '/admin/login');
+        setState(() {
+          _isAdminAccessActive = false;
+        });
+        _progressController?.reset();
+      }
+    });
+  }
+
+  void _cancelAdminAccessTimer() {
+    _adminAccessTimer?.cancel();
+    _progressController?.stop();
+    _progressController?.reset();
+    if (mounted) {
+      setState(() {
+        _isAdminAccessActive = false;
+      });
+    }
   }
 
   @override
@@ -67,31 +109,64 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Header with hidden debug access
+                      // Bus Logo with Admin Access (Hold for 5 seconds)
                       SizedBox(height: screenSize.height * 0.08),
                       GestureDetector(
-                        // Add long press gesture for accessing debug screen
-                        onLongPress: () {
-                          // Hidden debug access with long press
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => const DebugScreen()),
-                          );
-                        },
-                        child: GlassmorphicContainer.large(
-                          width: 140,
-                          height: 140,
-                          child: const Center(
-                            child: Icon(
-                              Icons.directions_bus_rounded,
-                              size: 80,
-                              color: AppColors.primary,
+                        onLongPressStart: (_) => _startAdminAccessTimer(),
+                        onLongPressEnd: (_) => _cancelAdminAccessTimer(),
+                        onLongPressCancel: () => _cancelAdminAccessTimer(),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Progress indicator (only shown when active)
+                            if (_isAdminAccessActive && _progressController != null)
+                              SizedBox(
+                                width: 180,
+                                height: 180,
+                                child: AnimatedBuilder(
+                                  animation: _progressController!,
+                                  builder: (context, child) {
+                                    return CircularProgressIndicator(
+                                      value: _progressController!.value,
+                                      strokeWidth: 4,
+                                      backgroundColor: AppColors.primary.withOpacity(0.2),
+                                      valueColor: const AlwaysStoppedAnimation<Color>(
+                                        AppColors.primary,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            // Bus Logo Container
+                            Container(
+                              decoration: _isAdminAccessActive
+                                  ? BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: AppColors.primary.withOpacity(0.3),
+                                        width: 2,
+                                      ),
+                                    )
+                                  : null,
+                              child: GlassmorphicContainer.large(
+                                width: 140,
+                                height: 140,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.directions_bus_rounded,
+                                    size: 80,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 32),
+                      
+                      // App Title
                       Text(
                         'CampusRide',
                         style: AppTypography.displayLarge.copyWith(
@@ -106,6 +181,18 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         ),
                         textAlign: TextAlign.center,
                       ),
+                      if (_isAdminAccessActive)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Hold bus logo for admin access...',
+                            style: AppTypography.bodySmall.copyWith(
+                              color: AppColors.primary,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
 
                       SizedBox(height: screenSize.height * 0.06),
 
@@ -140,7 +227,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const RegisterScreen(),
+                              builder: (context) => const UnifiedRegistrationScreen(),
                             ),
                           );
                         },
@@ -154,7 +241,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const LoginScreen(),
+                              builder: (context) => const UnifiedLoginScreen(),
                             ),
                           );
                         },
