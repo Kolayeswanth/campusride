@@ -5,12 +5,11 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math' as math;
 import '../../../core/theme/theme.dart';
 import '../../../core/services/route_management_service.dart';
-import '../../../core/services/open_route_service.dart';
-import '../../../core/services/maptiler_service.dart';
-import '../../../core/services/locationiq_service.dart';
-import '../../../core/services/fallback_routing_service.dart';
+import '../../../core/services/ola_maps_service.dart';
+import '../../../core/config/api_keys.dart';
 import '../models/college.dart';
 
 class RouteMapScreen extends StatefulWidget {
@@ -32,17 +31,19 @@ class RouteMapScreen extends StatefulWidget {
 class _RouteMapScreenState extends State<RouteMapScreen> {
   final TextEditingController _fromController = TextEditingController();
   final TextEditingController _toController = TextEditingController();
-  final MapController _mapController = MapController();
-  final OpenRouteService _routingService = OpenRouteService();
-  final MapTilerService _mapService = MapTilerService();
-  final LocationIQService _searchService = LocationIQService();
+  MapController? _mapController;
+  
+  // Services
+  final OlaMapsService _routeService = OlaMapsService();
   
   // Location data
-  LatLng _currentMapCenter = LatLng(28.7041, 77.1025); // Default to Delhi
+  LatLng _currentMapCenter = const LatLng(28.7041, 77.1025); // Default to Delhi
   
   // Route data
   List<LatLng> _routePoints = [];
   List<Map<String, dynamic>> _stops = [];
+  List<Polyline> _polylines = [];
+  List<Marker> _markers = [];
   bool _isLoading = false;
   bool _hasPolyline = false;
   String? _polylineData;
@@ -57,6 +58,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   // Additional state variables
   List<String> _stopDistances = [];
   String? _totalTime;
+  String _errorMessage = '';
+
+  // Location search state
+  List<Map<String, dynamic>> _fromLocationSuggestions = [];
+  List<Map<String, dynamic>> _toLocationSuggestions = [];
+  bool _showingFromSuggestions = false;
+  bool _showingToSuggestions = false;
 
   LatLng? get _fromLocation => _stops.isNotEmpty ? LatLng(_stops.first['lat'], _stops.first['lng']) : null;
   LatLng? get _toLocation => _stops.length > 1 ? LatLng(_stops.last['lat'], _stops.last['lng']) : null;
@@ -64,6 +72,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   @override
   void initState() {
     super.initState();
+    _mapController = MapController();
     _validateApiKeys();
     _initializeRoute();
     _requestLocationPermission();
@@ -101,20 +110,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   Future<void> _validateApiKeys() async {
-    final routingValid = await _routingService.validateApiKey();
-    final mapValid = await _mapService.validateApiKey();
-    final searchValid = await _searchService.validateApiKey();
-    
+    // Use Ola Maps API key validation
     setState(() {
-      _apiKeyValid = routingValid && mapValid && searchValid;
+      _apiKeyValid = ApiKeys.isValidOlaMapsKey();
     });
     
     if (!_apiKeyValid) {
-      String errorMsg = 'API keys validation failed:';
-      if (!routingValid) errorMsg += '\n- OpenRouteService key invalid';
-      if (!mapValid) errorMsg += '\n- MapTiler key invalid';
-      if (!searchValid) errorMsg += '\n- LocationIQ key invalid';
-      _showError(errorMsg);
+      _showError('Ola Maps API key is not configured properly');
     }
   }
 
@@ -220,7 +222,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
             ),
         ],
       ),
-      body: SafeArea(
+      body: GestureDetector(
+        onTap: _dismissSuggestions,
+        child: SafeArea(
         child: Column(
           children: [
           // Route info section
@@ -233,64 +237,156 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // From location input
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.shade300),
-                    color: Colors.green.shade50,
-                  ),
-                  child: TextFormField(
-                    controller: _fromController,
-                    decoration: InputDecoration(
-                      labelText: 'From',
-                      hintText: 'Enter starting location',
-                      prefixIcon: const Icon(Icons.trip_origin, color: Colors.green),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _selectingFromLocation ? Icons.location_searching : Icons.location_on,
-                          color: _selectingFromLocation ? Colors.green : Colors.grey,
-                        ),
-                        onPressed: () => _startLocationSelection(true),
-                        tooltip: 'Select on map',
+                // From location input with suggestions
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: EdgeInsets.only(bottom: _showingFromSuggestions ? 0 : 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade300),
+                        color: Colors.green.shade50,
                       ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: TextFormField(
+                        controller: _fromController,
+                        decoration: InputDecoration(
+                          labelText: 'From',
+                          hintText: 'Search for starting location',
+                          prefixIcon: const Icon(Icons.trip_origin, color: Colors.green),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _selectingFromLocation ? Icons.location_searching : Icons.location_on,
+                              color: _selectingFromLocation ? Colors.green : Colors.grey,
+                            ),
+                            onPressed: () => _startLocationSelection(true),
+                            tooltip: 'Select on map',
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        onChanged: (text) => _onLocationTextChanged(text, true),
+                        onTap: () => _showLocationSearch(true),
+                        readOnly: false,
+                      ),
                     ),
-                    onTap: () => _showLocationSearch(true),
-                    readOnly: false,
-                  ),
+                    if (_showingFromSuggestions)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green.shade300),
+                          color: Colors.white,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _fromLocationSuggestions.length,
+                          itemBuilder: (context, index) {
+                            final suggestion = _fromLocationSuggestions[index];
+                            return ListTile(
+                              leading: const Icon(Icons.location_on, color: Colors.green),
+                              title: Text(
+                                suggestion['name'] ?? '',
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                              subtitle: Text(
+                                suggestion['address'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 12,
+                                ),
+                              ),
+                              onTap: () => _selectLocationSuggestion(suggestion, true),
+                              dense: true,
+                            );
+                          },
+                        ),
+                      ),
+                  ],
                 ),
                 
-                // To location input
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.shade300),
-                    color: Colors.red.shade50,
-                  ),
-                  child: TextFormField(
-                    controller: _toController,
-                    decoration: InputDecoration(
-                      labelText: 'To',
-                      hintText: 'Enter destination',
-                      prefixIcon: const Icon(Icons.location_on, color: Colors.red),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _selectingToLocation ? Icons.location_searching : Icons.location_on,
-                          color: _selectingToLocation ? Colors.red : Colors.grey,
-                        ),
-                        onPressed: () => _startLocationSelection(false),
-                        tooltip: 'Select on map',
+                // To location input with suggestions
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: EdgeInsets.only(bottom: _showingToSuggestions ? 0 : 16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.shade300),
+                        color: Colors.red.shade50,
                       ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: TextFormField(
+                        controller: _toController,
+                        decoration: InputDecoration(
+                          labelText: 'To',
+                          hintText: 'Search for destination',
+                          prefixIcon: const Icon(Icons.location_on, color: Colors.red),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _selectingToLocation ? Icons.location_searching : Icons.location_on,
+                              color: _selectingToLocation ? Colors.red : Colors.grey,
+                            ),
+                            onPressed: () => _startLocationSelection(false),
+                            tooltip: 'Select on map',
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        onChanged: (text) => _onLocationTextChanged(text, false),
+                        onTap: () => _showLocationSearch(false),
+                        readOnly: false,
+                      ),
                     ),
-                    onTap: () => _showLocationSearch(false),
-                    readOnly: false,
-                  ),
+                    if (_showingToSuggestions)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red.shade300),
+                          color: Colors.white,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _toLocationSuggestions.length,
+                          itemBuilder: (context, index) {
+                            final suggestion = _toLocationSuggestions[index];
+                            return ListTile(
+                              leading: const Icon(Icons.location_on, color: Colors.red),
+                              title: Text(
+                                suggestion['name'] ?? '',
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                              subtitle: Text(
+                                suggestion['address'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 12,
+                                ),
+                              ),
+                              onTap: () => _selectLocationSuggestion(suggestion, false),
+                              dense: true,
+                            );
+                          },
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 16),                  // Use Wrap instead of Row to handle overflow
                   Wrap(
@@ -389,43 +485,64 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         ],
         ),
       ),
+      ),
     );
   }
 
   Widget _buildMapVisualization() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _currentMapCenter,
-        initialZoom: 14.0,
-        onTap: (tapPosition, point) => _onMapTap(point),
-        maxZoom: 18.0,
-        minZoom: 5.0,
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.campusride',
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _currentMapCenter,
+            initialZoom: 14.0,
+            onTap: (tapPosition, point) => _onMapTap(point),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: ApiKeys.mapLibreStyleUrl.contains('maptiler')
+                  ? 'https://api.maptiler.com/maps/streets/256/{z}/{x}/{y}.png?key=${ApiKeys.mapTilerApiKey}'
+                  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.example.campusride',
+            ),
+            if (_polylines.isNotEmpty)
+              PolylineLayer(
+                polylines: _polylines,
+              ),
+            if (_markers.isNotEmpty)
+              MarkerLayer(
+                markers: _markers,
+              ),
+          ],
         ),
-        if (_routePoints.isNotEmpty)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: _routePoints,
-                strokeWidth: 6.0,
-                color: Colors.black45,
-              ),
-              Polyline(
-                points: _routePoints,
-                strokeWidth: 4.0,
-                color: AppColors.primary,
-              ),
-            ],
+        
+        // Loading indicator
+        if (_isLoading)
+          Container(
+            color: Colors.black54,
+            child: const Center(
+              child: CircularProgressIndicator(),
+            ),
           ),
         
-        MarkerLayer(
-          markers: _buildStopMarkers(),
-        ),
+        // Error message
+        if (_errorMessage.isNotEmpty)
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Card(
+              color: Colors.red[100],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  _errorMessage,
+                  style: TextStyle(color: Colors.red[800]),
+                ),
+              ),
+            ),
+          ),
         
         if (_selectingFromLocation || _selectingToLocation || _addingWaypoint)
           Container(
@@ -482,63 +599,56 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       if (index == 0) {
         return Marker(
           point: point,
-          width: 60,
+          width: 40,
           height: 40,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: Colors.green, borderRadius: BorderRadius.circular(4)),
-                child: const Text('FROM', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
-              ),
-              const Icon(Icons.trip_origin, color: Colors.green, size: 24),
-            ],
+          child: const Icon(
+            Icons.trip_origin,
+            color: Colors.green,
+            size: 40,
           ),
         );
       } else if (index == _stops.length - 1) {
         return Marker(
           point: point,
-          width: 60,
+          width: 40,
           height: 40,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
-                child: const Text('TO', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
-              ),
-              const Icon(Icons.location_on, color: Colors.red, size: 24),
-            ],
+          child: const Icon(
+            Icons.location_on,
+            color: Colors.red,
+            size: 40,
           ),
         );
       } else {
         return Marker(
           point: point,
           width: 40,
-          height: 50,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: Colors.orange,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
-                ),
-                child: Text(
-                  '$index',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-              const Icon(Icons.location_on, color: Colors.orange, size: 24),
-            ],
+          height: 40,
+          child: const Icon(
+            Icons.location_on,
+            color: Colors.orange,
+            size: 40,
           ),
         );
       }
     }).toList();
+  }
+
+  void _updateMarkersAndPolylines() {
+    setState(() {
+      _markers = _buildStopMarkers();
+      
+      if (_routePoints.isNotEmpty) {
+        _polylines = [
+          Polyline(
+            points: _routePoints,
+            color: AppColors.primary,
+            strokeWidth: 4,
+          ),
+        ];
+      } else {
+        _polylines.clear();
+      }
+    });
   }
 
   Widget _buildRouteDetails() {
@@ -678,66 +788,124 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   void _showLocationSearch(bool isFrom) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => LocationSearchSheet(
-        searchService: _searchService,
-        onLocationSelected: (location, address) {
-          if (isFrom) {
-            setState(() {
-              if (_stops.isEmpty) {
-                _stops.add({'lat': location.latitude, 'lng': location.longitude});
-              } else {
-                _stops[0] = {'lat': location.latitude, 'lng': location.longitude};
-              }
-              _fromController.text = address;
-            });
-          } else {
-            if (_stops.isEmpty) return;
-            setState(() {
-              if (_stops.length == 1) {
-                _stops.add({'lat': location.latitude, 'lng': location.longitude});
-              } else {
-                _stops[_stops.length - 1] = {'lat': location.latitude, 'lng': location.longitude};
-              }
-              _toController.text = address;
-            });
-          }
-          Navigator.pop(context);
-          if (_stops.length >= 2) {
-            _generateRoute();
-          }
-        },
-      ),
-    );
+    // Clear previous suggestions
+    setState(() {
+      if (isFrom) {
+        _showingFromSuggestions = false;
+        _fromLocationSuggestions.clear();
+      } else {
+        _showingToSuggestions = false;
+        _toLocationSuggestions.clear();
+      }
+    });
+  }
+
+  Future<void> _onLocationTextChanged(String text, bool isFrom) async {
+    if (text.trim().isEmpty) {
+      setState(() {
+        if (isFrom) {
+          _fromLocationSuggestions.clear();
+          _showingFromSuggestions = false;
+        } else {
+          _toLocationSuggestions.clear();
+          _showingToSuggestions = false;
+        }
+      });
+      return;
+    }
+
+    try {
+      // Use current map center as bias for more relevant results
+      final suggestions = await _routeService.searchLocations(
+        text,
+        biasLocation: _currentMapCenter,
+      );
+
+      setState(() {
+        if (isFrom) {
+          _fromLocationSuggestions = suggestions;
+          _showingFromSuggestions = suggestions.isNotEmpty;
+        } else {
+          _toLocationSuggestions = suggestions;
+          _showingToSuggestions = suggestions.isNotEmpty;
+        }
+      });
+    } catch (e) {
+      print('Location search failed: $e');
+    }
+  }
+
+  void _selectLocationSuggestion(Map<String, dynamic> suggestion, bool isFrom) {
+    final location = LatLng(suggestion['latitude'], suggestion['longitude']);
+    
+    setState(() {
+      if (isFrom) {
+        _fromController.text = suggestion['name'];
+        _fromLocationSuggestions.clear();
+        _showingFromSuggestions = false;
+        // Update the first stop
+        if (_stops.isNotEmpty) {
+          _stops[0] = {
+            'lat': location.latitude,
+            'lng': location.longitude,
+            'name': suggestion['name'],
+          };
+        } else {
+          _stops.add({
+            'lat': location.latitude,
+            'lng': location.longitude,
+            'name': suggestion['name'],
+          });
+        }
+      } else {
+        _toController.text = suggestion['name'];
+        _toLocationSuggestions.clear();
+        _showingToSuggestions = false;
+        // Update the last stop
+        if (_stops.length >= 2) {
+          _stops.last = {
+            'lat': location.latitude,
+            'lng': location.longitude,
+            'name': suggestion['name'],
+          };
+        } else if (_stops.length == 1) {
+          _stops.add({
+            'lat': location.latitude,
+            'lng': location.longitude,
+            'name': suggestion['name'],
+          });
+        } else {
+          // If no stops exist, add both from and to
+          _stops.addAll([
+            {
+              'lat': _currentMapCenter.latitude,
+              'lng': _currentMapCenter.longitude,
+              'name': 'Start',
+            },
+            {
+              'lat': location.latitude,
+              'lng': location.longitude,
+              'name': suggestion['name'],
+            },
+          ]);
+        }
+      }
+      
+      _updateMarkersAndPolylines();
+    });
   }
 
   Future<void> _updateLocationText(LatLng location, bool isFrom) async {
-    try {
-      final address = await _searchService.reverseGeocode(location);
-      if (mounted) {
-        setState(() {
-          if (isFrom) {
-            _fromController.text = address;
-          } else {
-            _toController.text = address;
-          }
-        });
-      }
-    } catch (e) {
-      print('Error with reverse geocoding: $e');
-      // Fallback to coordinates
-      final coordText = '${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}';
-      if (mounted) {
-        setState(() {
-          if (isFrom) {
-            _fromController.text = coordText;
-          } else {
-            _toController.text = coordText;
-          }
-        });
-      }
+    // For now, just use coordinates as the text
+    final coordText = '${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}';
+    if (mounted) {
+      setState(() {
+        if (isFrom) {
+          _fromController.text = coordText;
+        } else {
+          _toController.text = coordText;
+        }
+      });
     }
   }
 
@@ -750,6 +918,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
 
     setState(() {
       _isLoading = true;
+      _errorMessage = '';
     });
 
     try {
@@ -757,7 +926,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       final waypoints = _stops.map((s) => LatLng(s['lat'], s['lng'])).toList();
       
       // Validate coordinates first
-      if (!FallbackRoutingService.areCoordinatesValid(waypoints)) {
+      if (!_areCoordinatesValid(waypoints)) {
         _showError('Invalid coordinates provided. Please check your locations.');
         return;
       }
@@ -765,29 +934,50 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       Map<String, dynamic> routeData;
       bool usingFallback = false;
       
-      // Try to use OpenRouteService first if API keys are valid
+      // Try to use Ola Maps first if API keys are valid
       if (_apiKeyValid) {
         try {
-          final orsResponse = await _routingService.getDirections(waypoints: waypoints);
-          routeData = _routingService.parseDirectionsResponse(orsResponse);
+          final route = await _fetchRoute(waypoints.first, waypoints.last);
+          if (route.isNotEmpty) {
+            routeData = _createRouteData(route, waypoints);
+          } else {
+            throw Exception('No route found');
+          }
         } catch (e) {
-          print('OpenRouteService failed: $e');
+          print('Ola Maps failed: $e');
           // Fall back to direct routing
-          routeData = FallbackRoutingService.generateDirectRoute(waypoints: waypoints);
+          routeData = _generateDirectRoute(waypoints);
           usingFallback = true;
           
-          // Show a warning that we're using fallback routing
+          // Show a more informative warning
+          final errorMsg = e.toString().toLowerCase();
+          String userMessage;
+          if (errorMsg.contains('no route found')) {
+            userMessage = 'Could not find a road route between the selected locations. Using direct path estimation.';
+          } else if (errorMsg.contains('timeout') || errorMsg.contains('network')) {
+            userMessage = 'Network connection issue. Using offline route estimation.';
+          } else if (errorMsg.contains('api key') || errorMsg.contains('access denied')) {
+            userMessage = 'External routing service unavailable. Using direct route estimation.';
+          } else {
+            userMessage = 'External routing service unavailable. Using direct route estimation.';
+          }
+          
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('External routing service unavailable. Using direct route estimation.'),
+              content: Text(userMessage),
               backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
+              duration: Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'OK',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
             ),
           );
         }
       } else {
         // Use fallback routing if API keys are invalid
-        routeData = FallbackRoutingService.generateDirectRoute(waypoints: waypoints);
+        routeData = _generateDirectRoute(waypoints);
         usingFallback = true;
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -808,16 +998,43 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         _totalTime = _formatDuration(routeData['total_duration']);
       });
 
+      // Update markers and polylines
+      _updateMarkersAndPolylines();
+      
       // Fit the map to show the entire route
       _fitBounds();
       
-      // Show success message
-      final routeType = usingFallback ? 'Direct route' : 'Optimized route';
+      // Show success message with route type indication
+      String routeType;
+      Color messageColor;
+      
+      if (usingFallback || routeData.containsKey('is_fallback')) {
+        routeType = 'Direct route (estimated)';
+        messageColor = Colors.orange;
+      } else {
+        // Check if this might be a straight-line route by examining segment count
+        final segments = routeData['segment_distances'] as List<String>? ?? [];
+        if (segments.isEmpty || _routePoints.length < 5) {
+          routeType = 'Direct route (estimated)';
+          messageColor = Colors.orange;
+        } else {
+          routeType = 'Optimized road route';
+          messageColor = Colors.green;
+        }
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$routeType generated successfully! Distance: ${_distanceKm?.toStringAsFixed(1)} km'),
-          backgroundColor: Colors.green,
+          content: Text('$routeType generated! Distance: ${_distanceKm?.toStringAsFixed(1)} km'),
+          backgroundColor: messageColor,
           duration: Duration(seconds: 3),
+          action: routeType.contains('Direct') ? SnackBarAction(
+            label: 'Info',
+            textColor: Colors.white,
+            onPressed: () {
+              _showRouteTypeInfo();
+            },
+          ) : null,
         ),
       );
 
@@ -831,6 +1048,113 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         });
       }
     }
+  }
+
+  bool _areCoordinatesValid(List<LatLng> waypoints) {
+    for (final point in waypoints) {
+      if (point.latitude < -90 || point.latitude > 90 || 
+          point.longitude < -180 || point.longitude > 180) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<List<LatLng>> _fetchRoute(LatLng from, LatLng to) async {
+    try {
+      final response = await _routeService.getDirections(
+        waypoints: [from, to],
+        mode: 'DRIVING',
+      );
+      
+      final parsedResponse = _routeService.parseDirectionsResponse(response);
+      final routePoints = parsedResponse['route_points'] as List<LatLng>?;
+      
+      if (routePoints != null && routePoints.isNotEmpty) {
+        print('Ola Maps route found with ${routePoints.length} points');
+        return routePoints;
+      } else {
+        throw Exception('No route points found in response');
+      }
+    } catch (e) {
+      print('Ola Maps route request failed: $e');
+      // Create a simple straight-line route as fallback
+      return [from, to];
+    }
+  }
+
+  Map<String, dynamic> _createRouteData(List<LatLng> route, List<LatLng> waypoints) {
+    // Calculate distance
+    double totalDistance = 0.0;
+    for (int i = 0; i < route.length - 1; i++) {
+      totalDistance += _calculateDistance(route[i], route[i + 1]);
+    }
+
+    return {
+      'route_points': route,
+      'total_distance': totalDistance,
+      'total_duration': totalDistance * 60, // Rough estimate: 1 km per minute
+      'polyline_data': json.encode(route.map((p) => [p.longitude, p.latitude]).toList()),
+      'segment_distances': ['${totalDistance.toStringAsFixed(1)} km'],
+    };
+  }
+
+  Map<String, dynamic> _generateDirectRoute(List<LatLng> waypoints) {
+    // Calculate approximate distance
+    double totalDistance = 0.0;
+    for (int i = 0; i < waypoints.length - 1; i++) {
+      totalDistance += _calculateDistance(waypoints[i], waypoints[i + 1]);
+    }
+
+    return {
+      'route_points': waypoints,
+      'total_distance': totalDistance,
+      'total_duration': totalDistance * 60, // Rough estimate: 1 km per minute
+      'polyline_data': json.encode(waypoints.map((p) => [p.longitude, p.latitude]).toList()),
+      'segment_distances': ['${totalDistance.toStringAsFixed(1)} km'],
+      'is_fallback': true,
+    };
+  }
+
+  double _calculateDistance(LatLng point1, LatLng point2) {
+    const double earthRadius = 6371; // Earth's radius in kilometers
+    
+    final double lat1Rad = point1.latitude * (math.pi / 180);
+    final double lat2Rad = point2.latitude * (math.pi / 180);
+    final double deltaLatRad = (point2.latitude - point1.latitude) * (math.pi / 180);
+    final double deltaLngRad = (point2.longitude - point1.longitude) * (math.pi / 180);
+
+    final double a = math.sin(deltaLatRad / 2) * math.sin(deltaLatRad / 2) +
+        math.cos(lat1Rad) * math.cos(lat2Rad) *
+        math.sin(deltaLngRad / 2) * math.sin(deltaLngRad / 2);
+    final double c = 2 * math.asin(math.sqrt(a));
+
+    return earthRadius * c;
+  }
+
+  void _showRouteTypeInfo() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Route Information'),
+          content: const Text(
+            'This is a direct route estimate. The routing service couldn\'t find an optimized road route for these coordinates, so a straight-line route has been calculated instead.\n\n'
+            'This may happen when:\n'
+            '• Coordinates are not near accessible roads\n'
+            '• The routing service doesn\'t have coverage for this area\n'
+            '• Network connectivity issues\n\n'
+            'The distance and duration are rough estimates based on straight-line distance.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _generatePolylineVisualization() {
@@ -847,13 +1171,27 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   void _fitBounds() {
-    if (_routePoints.isEmpty) return;
-    var bounds = LatLngBounds.fromPoints(_routePoints);
-    _mapController.fitCamera(
-      CameraFit.bounds(
-        bounds: bounds,
-        padding: const EdgeInsets.all(50.0),
-      ),
+    if (_routePoints.isEmpty || _mapController == null) return;
+    
+    double minLat = _routePoints.first.latitude;
+    double maxLat = _routePoints.first.latitude;
+    double minLng = _routePoints.first.longitude;
+    double maxLng = _routePoints.first.longitude;
+    
+    for (final point in _routePoints) {
+      minLat = math.min(minLat, point.latitude);
+      maxLat = math.max(maxLat, point.latitude);
+      minLng = math.min(minLng, point.longitude);
+      maxLng = math.max(maxLng, point.longitude);
+    }
+    
+    final bounds = LatLngBounds(
+      LatLng(minLat, minLng),
+      LatLng(maxLat, maxLng),
+    );
+    
+    _mapController!.fitCamera(
+      CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(50)),
     );
   }
 
@@ -995,144 +1333,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       ),
     );
   }
-}
 
-class LocationSearchSheet extends StatefulWidget {
-  final LocationIQService searchService;
-  final Function(LatLng location, String address) onLocationSelected;
-
-  const LocationSearchSheet({
-    Key? key,
-    required this.searchService,
-    required this.onLocationSelected,
-  }) : super(key: key);
-
-  @override
-  State<LocationSearchSheet> createState() => _LocationSearchSheetState();
-}
-
-class _LocationSearchSheetState extends State<LocationSearchSheet> {
-  final TextEditingController _searchController = TextEditingController();
-  List<Map<String, dynamic>> _searchResults = [];
-  bool _isLoading = false;
-  Timer? _debounceTimer;
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _debounceTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _performSearch(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _isLoading = false;
-      });
-      return;
-    }
-
-    // Debounce the search to avoid too many API calls
-    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
-      setState(() {
-        _isLoading = true;
-      });
-
-      try {
-        final results = await widget.searchService.searchPlaces(query.trim());
-        if (mounted) {
-          setState(() {
-            _searchResults = results;
-            _isLoading = false;
-          });
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _searchResults = [];
-            _isLoading = false;
-          });
-        }
-        // Don't show error in UI for search, just log it
-        print('Search error: $e');
-      }
+  void _dismissSuggestions() {
+    setState(() {
+      _showingFromSuggestions = false;
+      _showingToSuggestions = false;
+      _fromLocationSuggestions.clear();
+      _toLocationSuggestions.clear();
     });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      minChildSize: 0.3,
-      maxChildSize: 0.9,
-      builder: (context, scrollController) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            children: [
-              // Handle bar
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              // Search field
-              TextField(
-                controller: _searchController,
-                decoration: const InputDecoration(
-                  labelText: 'Search for a location',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: _performSearch,
-                autofocus: true,
-              ),
-              const SizedBox(height: 16),
-              // Loading or results
-              Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ListView.builder(
-                        controller: scrollController,
-                        itemCount: _searchResults.length,
-                        itemBuilder: (context, index) {
-                          final result = _searchResults[index];
-                          return ListTile(
-                            leading: const Icon(Icons.location_on),
-                            title: Text(
-                              result['display_name'],
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              '${result['lat'].toStringAsFixed(4)}, ${result['lng'].toStringAsFixed(4)}',
-                              style: TextStyle(color: Colors.grey[600]),
-                            ),
-                            onTap: () {
-                              widget.onLocationSelected(
-                                LatLng(result['lat'], result['lng']),
-                                result['display_name'],
-                              );
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 }

@@ -64,8 +64,8 @@ class _RouteFormScreenState extends State<RouteFormScreen> {
   void initState() {
     super.initState();
     _busNumberController = TextEditingController(text: widget.route?.busNumber ?? '');
-    _startLocationController = TextEditingController(text: widget.route?.startLocation ?? '');
-    _endLocationController = TextEditingController(text: widget.route?.endLocation ?? '');
+    _startLocationController = TextEditingController(text: widget.route?.startLocationName ?? '');
+    _endLocationController = TextEditingController(text: widget.route?.endLocationName ?? '');
     _isActive = widget.route?.isActive ?? true;
     // Delay map initialization to avoid blocking the UI
     Future.microtask(() => _initializeMap());
@@ -84,8 +84,8 @@ class _RouteFormScreenState extends State<RouteFormScreen> {
   Future<void> _initializeMap() async {
     if (widget.route != null) {
       try {
-        final startCoords = await locationFromAddress(widget.route!.startLocation);
-        final endCoords = await locationFromAddress(widget.route!.endLocation);
+        final startCoords = await locationFromAddress(widget.route!.startLocationName);
+        final endCoords = await locationFromAddress(widget.route!.endLocationName);
         if (mounted && startCoords.isNotEmpty && endCoords.isNotEmpty) {
           setState(() {
             _startLocation = latlong2.LatLng(startCoords.first.latitude, startCoords.first.longitude);
@@ -411,7 +411,7 @@ class _RouteFormScreenState extends State<RouteFormScreen> {
             startLng: _startLocation!.longitude,
             endLat: _endLocation!.latitude,
             endLng: _endLocation!.longitude,
-            collegeId: widget.collegeId!,
+            collegeId: widget.collegeId!, // Using collegeId which actually contains the code
             driverId: widget.driverId!,
           );
         } else {

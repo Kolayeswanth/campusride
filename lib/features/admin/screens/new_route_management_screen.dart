@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/services/route_management_service.dart';
 import '../models/college.dart';
-import 'route_map_screen.dart';
+import 'enhanced_route_creation_screen.dart';
 
 class NewRouteManagementScreen extends StatefulWidget {
   final College college;
@@ -22,7 +22,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<RouteManagementService>().loadCollegeRoutes(widget.college.id);
+      context.read<RouteManagementService>().loadCollegeRoutes(widget.college.code);
     });
   }
 
@@ -36,7 +36,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => _showCreateRouteDialog(context),
+            onPressed: () => _navigateToRouteCreation(context),
             tooltip: 'Add Route',
           ),
         ],
@@ -74,7 +74,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
                   ElevatedButton(
                     onPressed: () {
                       routeService.clearError();
-                      routeService.loadCollegeRoutes(widget.college.id);
+                      routeService.loadCollegeRoutes(widget.college.code);
                     },
                     child: const Text('Retry'),
                   ),
@@ -107,7 +107,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
-                    onPressed: () => _showCreateRouteDialog(context),
+                    onPressed: () => _navigateToRouteCreation(context),
                     icon: const Icon(Icons.add),
                     label: const Text('Add Route'),
                   ),
@@ -117,7 +117,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
           }
 
           return RefreshIndicator(
-            onRefresh: () => routeService.loadCollegeRoutes(widget.college.id),
+            onRefresh: () => routeService.loadCollegeRoutes(widget.college.code),
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: routeService.routes.length,
@@ -126,12 +126,11 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
                 return _RouteCard(
                   route: route,
                   college: widget.college,
-                  onEdit: () => _showCreateRouteDialog(context, route: route),
                   onDelete: () => _confirmDeleteRoute(context, route),
                   onToggleStatus: (active) => routeService.toggleRouteStatus(
                     route['id'],
                     active,
-                    widget.college.id,
+                    widget.college.code,
                   ),
                   onSetRoute: () => _showRouteMapDialog(context, route),
                 );
@@ -143,183 +142,18 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
     );
   }
 
-  void _showCreateRouteDialog(BuildContext context, {Map<String, dynamic>? route}) {
-    final isEditing = route != null;
-    final formKey = GlobalKey<FormState>();
-    final busNumberController = TextEditingController(text: route?['bus_number'] ?? '');
-    final routeNameController = TextEditingController(text: route?['route_name'] ?? '');
-    final startLocationController = TextEditingController(text: route?['start_location'] ?? '');
-    final endLocationController = TextEditingController(text: route?['end_location'] ?? '');
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isEditing ? 'Edit Route' : 'Create New Route'),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: busNumberController,
-                  decoration: const InputDecoration(
-                    labelText: 'Bus Number',
-                    hintText: 'e.g., Bus 101',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.directions_bus),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter bus number';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: routeNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Route Name',
-                    hintText: 'e.g., Campus to Downtown',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.route),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter route name';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: startLocationController,
-                  decoration: const InputDecoration(
-                    labelText: 'From Location',
-                    hintText: 'e.g., Main Campus Gate',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.location_on),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter start location';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: endLocationController,
-                  decoration: const InputDecoration(
-                    labelText: 'To Location',
-                    hintText: 'e.g., Downtown Station',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.flag),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter end location';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryLight.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: AppColors.primary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'After creating the route, you can set the path on the map',
-                          style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+  void _navigateToRouteCreation(BuildContext context, {Map<String, dynamic>? route}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EnhancedRouteCreationScreen(
+          college: widget.college,
+          existingRoute: route,
+          onRouteSaved: (updatedRoute) {
+            // Refresh the routes list after saving
+            context.read<RouteManagementService>().loadCollegeRoutes(widget.college.code);
+          },
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                final routeService = context.read<RouteManagementService>();
-                
-                // Check bus number uniqueness
-                final isUnique = await routeService.isBusNumberUnique(
-                  busNumberController.text.trim(),
-                  widget.college.id,
-                  route?['id'],
-                );
-                
-                if (!isUnique) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Bus number already exists for this college'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                bool success;
-                if (isEditing) {
-                  // Update logic would go here
-                  success = false; // Placeholder
-                } else {
-                  success = await routeService.createRoute(
-                    collegeId: widget.college.id,
-                    busNumber: busNumberController.text.trim(),
-                    routeName: routeNameController.text.trim(),
-                    startLocation: startLocationController.text.trim(),
-                    endLocation: endLocationController.text.trim(),
-                  );
-                }
-
-                if (success) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        isEditing 
-                            ? 'Route updated successfully' 
-                            : 'Route created successfully'
-                      ),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } else if (routeService.error != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(routeService.error!),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            child: Text(isEditing ? 'Update' : 'Create'),
-          ),
-        ],
       ),
     );
   }
@@ -329,7 +163,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Route'),
-        content: Text('Are you sure you want to delete route ${route['bus_number']}?'),
+        content: Text('Are you sure you want to delete route ${route['name']}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -339,7 +173,7 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
             onPressed: () async {
               Navigator.pop(context);
               final routeService = context.read<RouteManagementService>();
-              final success = await routeService.deleteRoute(route['id'], widget.college.id);
+              final success = await routeService.deleteRoute(route['id'], widget.college.code);
               
               if (success) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -369,12 +203,12 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => RouteMapScreen(
-          route: route,
+        builder: (context) => EnhancedRouteCreationScreen(
           college: widget.college,
+          existingRoute: route,
           onRouteSaved: (updatedRoute) {
             // Refresh the routes list after saving
-            context.read<RouteManagementService>().loadCollegeRoutes(widget.college.id);
+            context.read<RouteManagementService>().loadCollegeRoutes(widget.college.code);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('Route path saved successfully'),
@@ -391,7 +225,6 @@ class _NewRouteManagementScreenState extends State<NewRouteManagementScreen> {
 class _RouteCard extends StatelessWidget {
   final Map<String, dynamic> route;
   final College college;
-  final VoidCallback onEdit;
   final VoidCallback onDelete;
   final Function(bool) onToggleStatus;
   final VoidCallback onSetRoute;
@@ -399,7 +232,6 @@ class _RouteCard extends StatelessWidget {
   const _RouteCard({
     required this.route,
     required this.college,
-    required this.onEdit,
     required this.onDelete,
     required this.onToggleStatus,
     required this.onSetRoute,
@@ -408,25 +240,76 @@ class _RouteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPolyline = route['polyline_data'] != null && route['polyline_data'].toString().isNotEmpty;
-    final isActive = route['active'] == true;
+    final isActive = route['is_active'] == true; // Changed from 'active' to 'is_active'
+    
+    // Extract location names from the JSONB objects
+    String startLocationName = 'Unknown Start';
+    String endLocationName = 'Unknown End';
+    
+    if (route['start_location'] is Map) {
+      final startLocation = Map<String, dynamic>.from(route['start_location'] as Map);
+      startLocationName = startLocation['name']?.toString() ?? 'Unknown Start';
+    }
+    
+    if (route['end_location'] is Map) {
+      final endLocation = Map<String, dynamic>.from(route['end_location'] as Map);
+      endLocationName = endLocation['name']?.toString() ?? 'Unknown End';
+    }
     
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+      elevation: isActive ? 4 : 2,
+      clipBehavior: Clip.antiAlias,
+      shadowColor: isActive 
+          ? Colors.green.withOpacity(0.3) 
+          : Colors.black.withOpacity(0.15),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: isActive 
+              ? Colors.green.withOpacity(0.4) 
+              : Colors.grey.withOpacity(0.2),
+          width: isActive ? 1.5 : 0.5,
+        ),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              isActive 
+                  ? Colors.green.withOpacity(0.07) 
+                  : Colors.grey.withOpacity(0.05),
+            ],
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
+            // Header row with route number and active status
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Route number badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: isActive ? AppColors.primary : Colors.grey.shade400,
                     borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 2,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
                   ),
                   child: Text(
-                    route['bus_number'] ?? 'Unknown',
+                    route['name'] ?? 'Unknown', // Changed from 'bus_number' to 'name'
                     style: AppTypography.labelMedium.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -434,90 +317,215 @@ class _RouteCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
+                
+                // Route title and path
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        route['route_name'] ?? 'Unnamed Route',
+                        route['name'] ?? 'Unnamed Route', // Changed from 'route_name' to 'name'
                         style: AppTypography.titleMedium.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.route,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              '$startLocationName → $endLocationName', // Using extracted location names
+                              style: AppTypography.bodySmall.copyWith(
+                                color: AppColors.textSecondary,
+                                height: 1.2,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Active/Inactive status with toggle
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: isActive 
+                        ? Colors.green.withOpacity(0.1) 
+                        : Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isActive ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isActive ? Icons.check_circle : Icons.cancel,
+                        size: 16,
+                        color: isActive ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 6),
                       Text(
-                        '${route['start_location']} → ${route['end_location']}',
-                        style: AppTypography.bodySmall.copyWith(
-                          color: AppColors.textSecondary,
+                        isActive ? 'Active' : 'Inactive',
+                        style: TextStyle(
+                          color: isActive ? Colors.green : Colors.grey,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        height: 20, // Fixed height for the switch
+                        width: 36,  // Fixed width for the switch
+                        child: FittedBox(
+                          fit: BoxFit.contain,
+                          child: Switch(
+                            value: isActive,
+                            onChanged: onToggleStatus,
+                            activeColor: Colors.green,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                Switch(
-                  value: isActive,
-                  onChanged: onToggleStatus,
-                  activeColor: AppColors.primary,
-                ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 18),
             
-            // Route info chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _InfoChip(
-                    icon: Icons.map,
-                    label: hasPolyline ? 'Route Set' : 'No Route',
-                    color: hasPolyline ? Colors.green : Colors.orange,
-                  ),
-                  if (route['distance_km'] != null) ...[
-                    const SizedBox(width: 8),
-                    _InfoChip(
-                      icon: Icons.straighten,
-                      label: '${route['distance_km']} km',
-                      color: Colors.blue,
-                    ),
+            // Divider with gradient effect
+            Container(
+              height: 1.5,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.grey.withOpacity(0.05),
+                    isActive ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+                    Colors.grey.withOpacity(0.05),
                   ],
-                  if (route['estimated_duration_minutes'] != null) ...[
-                    const SizedBox(width: 8),
-                    _InfoChip(
-                      icon: Icons.access_time,
-                      label: '${route['estimated_duration_minutes']} min',
-                      color: Colors.purple,
-                    ),
-                  ],
-                ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 18),
             
-            // Action buttons
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: onSetRoute,
-                    icon: Icon(hasPolyline ? Icons.map : Icons.add_location),
-                    label: Text(hasPolyline ? 'View Map' : 'Set Route'),
+            // Route info section with chips and actions
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Info chips in scrollable row
+                SizedBox(
+                  height: 36,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      children: [
+                        _InfoChip(
+                          icon: Icons.map,
+                          label: hasPolyline ? 'Route Set' : 'No Route',
+                          color: hasPolyline ? Colors.green : Colors.orange,
+                        ),
+                        if (route['distance_km'] != null) ...[
+                          const SizedBox(width: 8),
+                          _InfoChip(
+                            icon: Icons.straighten,
+                            label: '${(route['distance_km'] as num).toStringAsFixed(1)} km',
+                            color: Colors.blue.shade700,
+                          ),
+                        ],
+                        if (route['estimated_duration_minutes'] != null) ...[
+                          const SizedBox(width: 8),
+                          _InfoChip(
+                            icon: Icons.access_time,
+                            label: '${route['estimated_duration_minutes']} min',
+                            color: Colors.purple.shade600,
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  TextButton.icon(
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Edit'),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton.icon(
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete),
-                    label: const Text('Delete'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  ),
-                ],
-              ),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Action buttons row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Map/Set Route button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: onSetRoute,
+                        icon: Icon(
+                          hasPolyline ? Icons.map : Icons.add_location,
+                          size: 18,
+                        ),
+                        label: Text(
+                          hasPolyline ? 'View Map' : 'Set Route',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: hasPolyline ? Colors.teal : AppColors.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 2,
+                          shadowColor: hasPolyline 
+                              ? Colors.teal.withOpacity(0.3) 
+                              : AppColors.primary.withOpacity(0.3),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    
+                    // Delete button
+                    Material(
+                      color: Colors.transparent,
+                      shape: const CircleBorder(),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: onDelete,
+                        child: Ink(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.red.withOpacity(0.1),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(10.0),
+                            child: Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -539,29 +547,54 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: color,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: AppTypography.labelSmall.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {}, // Empty callback to show the ripple effect
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withOpacity(0.3), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.1),
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+            ],
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color.withOpacity(0.05),
+                color.withOpacity(0.15),
+              ],
             ),
           ),
-        ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: color,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: AppTypography.labelSmall.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

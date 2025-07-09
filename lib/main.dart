@@ -12,7 +12,6 @@ import 'core/services/navigation_service.dart';
 import 'core/services/route_management_service.dart';
 import 'features/admin/services/super_admin_service.dart';
 import 'features/admin/drivers/services/driver_service.dart';
-import 'features/admin/routes/services/route_service.dart';
 import 'features/admin/services/driver_location_service.dart';
 import 'features/admin/colleges/services/college_service.dart';
 import 'features/admin/colleges/screens/college_list_screen.dart';
@@ -68,16 +67,11 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final supabase = Supabase.instance.client;
-
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService.instance),
         ChangeNotifierProvider(create: (_) => SuperAdminService()),
         ChangeNotifierProvider(create: (_) => DriverService()),
-        ChangeNotifierProvider(
-          create: (_) => RouteService(supabase),
-        ),
         ChangeNotifierProvider(create: (_) => RouteManagementService()),
         ChangeNotifierProvider(create: (_) => DriverLocationService()),
         ChangeNotifierProvider(create: (_) => CollegeService()),

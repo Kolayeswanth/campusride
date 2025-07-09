@@ -18,6 +18,13 @@ CampusRide is a modern Flutter application that provides real-time tracking of c
 - Route visualization
 - Trip statistics
 
+### Database & Backend
+- Supabase database integration
+- Authentication with email/password and Google Sign-In
+- Real-time location updates
+- Route management system
+- Schema cache management utilities
+
 ## Technical Stack
 
 - **Frontend**: Flutter with Material Design 3
@@ -143,3 +150,15 @@ lib/
 - [ ] Favorite routes
 - [ ] Trip history
 - [ ] Notifications
+
+## Developer Documentation
+
+### Schema Cache Management
+The app includes utilities to manage Supabase/PostgREST schema cache issues:
+
+1. `FINAL_SCHEMA_CACHE_FIX.sql` - SQL script to update schema and refresh cache
+2. `schema_cache_test.dart` - Test tool to verify schema compatibility
+3. `refresh_schema_cache.ps1` - PowerShell script to force cache refresh via API
+4. `SCHEMA_CACHE_FIX_GUIDE.md` - Detailed troubleshooting guide
+
+Run `run_schema_test.bat` to test schema compatibility before deploying changes.

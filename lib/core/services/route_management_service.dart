@@ -13,15 +13,14 @@ class RouteManagementService extends ChangeNotifier {
   String? get error => _error;
 
   /// Get all routes for a specific college
-  Future<void> loadCollegeRoutes(String collegeId) async {
+  Future<void> loadCollegeRoutes(String collegeCode) async {
     _setLoading(true);
     try {
       final response = await _supabase
           .from('routes')
           .select('*')
-          .eq('college_id', collegeId)
-          .eq('active', true)
-          .order('bus_number');
+          .eq('college_code', collegeCode)
+          .order('name');
 
       _routes = List<Map<String, dynamic>>.from(response);
       _error = null;
@@ -35,7 +34,7 @@ class RouteManagementService extends ChangeNotifier {
 
   /// Create a new route
   Future<bool> createRoute({
-    required String collegeId,
+    required String collegeCode,  // Changed from collegeId to collegeCode
     required String busNumber,
     required String routeName,
     required String startLocation,
@@ -48,21 +47,19 @@ class RouteManagementService extends ChangeNotifier {
     _setLoading(true);
     try {
       await _supabase.from('routes').insert({
-        'college_id': collegeId,
-        'bus_number': busNumber,
-        'route_name': routeName,
+        'college_code': collegeCode,  // Now correctly named
+        'name': routeName,
         'start_location': startLocation,
         'end_location': endLocation,
         'polyline_data': polylineData,
-        'waypoints': waypoints ?? [],
         'distance_km': distanceKm,
         'estimated_duration_minutes': estimatedDurationMinutes,
-        'active': true,
+        'is_active': true,
       });
 
       _error = null;
       // Reload routes after creation
-      await loadCollegeRoutes(collegeId);
+      await loadCollegeRoutes(collegeCode);
       return true;
     } catch (e) {
       _error = 'Failed to create route: $e';
@@ -139,14 +136,14 @@ class RouteManagementService extends ChangeNotifier {
   }
 
   /// Delete a route
-  Future<bool> deleteRoute(String routeId, String collegeId) async {
+  Future<bool> deleteRoute(String routeId, String collegeCode) async {
     _setLoading(true);
     try {
       await _supabase.from('routes').delete().eq('id', routeId);
 
       _error = null;
       // Reload routes after deletion
-      await loadCollegeRoutes(collegeId);
+      await loadCollegeRoutes(collegeCode);
       return true;
     } catch (e) {
       _error = 'Failed to delete route: $e';
@@ -158,15 +155,23 @@ class RouteManagementService extends ChangeNotifier {
   }
 
   /// Toggle route active status
-  Future<bool> toggleRouteStatus(String routeId, bool active, String collegeId) async {
+  Future<bool> toggleRouteStatus(String routeId, bool active, String collegeCode) async {
     try {
       await _supabase.from('routes').update({
-        'active': active,
+        'is_active': active, // Changed from 'active' to 'is_active' to match the new schema
       }).eq('id', routeId);
 
       _error = null;
-      // Reload routes after status change
-      await loadCollegeRoutes(collegeId);
+      
+      // Update local route data without filtering
+      final index = _routes.indexWhere((route) => route['id'] == routeId);
+      if (index != -1) {
+        _routes[index]['is_active'] = active;
+        notifyListeners();
+      } else {
+        // If not found in local cache, reload all routes
+        await loadCollegeRoutes(collegeCode);
+      }
       return true;
     } catch (e) {
       _error = 'Failed to update route status: $e';
@@ -192,13 +197,13 @@ class RouteManagementService extends ChangeNotifier {
   }
 
   /// Check if bus number is unique for college
-  Future<bool> isBusNumberUnique(String busNumber, String collegeId, [String? excludeRouteId]) async {
+  Future<bool> isBusNumberUnique(String busNumber, String collegeCode, [String? excludeRouteId]) async {
     try {
       var query = _supabase
           .from('routes')
           .select('id')
-          .eq('college_id', collegeId)
-          .eq('bus_number', busNumber);
+          .eq('college_code', collegeCode)
+          .eq('name', busNumber); // Assuming bus_number is now stored in the name field
 
       if (excludeRouteId != null) {
         query = query.neq('id', excludeRouteId);
