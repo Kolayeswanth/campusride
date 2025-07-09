@@ -40,7 +40,7 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
       if (!mounted) return;
 
       if (authService.error == null && authService.userRole == 'super_admin') {
-        Navigator.pushReplacementNamed(context, '/admin/colleges');
+        Navigator.pushReplacementNamed(context, '/admin/dashboard');
       } else if (authService.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

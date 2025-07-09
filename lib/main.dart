@@ -14,7 +14,6 @@ import 'features/admin/services/super_admin_service.dart';
 import 'features/admin/drivers/services/driver_service.dart';
 import 'features/admin/services/driver_location_service.dart';
 import 'features/admin/colleges/services/college_service.dart';
-import 'features/admin/colleges/screens/college_list_screen.dart';
 import 'features/admin/screens/super_admin_login_screen.dart';
 import 'features/admin/screens/super_admin_dashboard_screen.dart';
 import 'features/driver/screens/driver_home_screen.dart';
@@ -90,7 +89,6 @@ class MyApp extends StatelessWidget {
           '/register': (context) => const UnifiedRegistrationScreen(),
           '/admin/login': (context) => const SuperAdminLoginScreen(),
           '/admin/dashboard': (context) => const SuperAdminDashboardScreen(),
-          '/admin/colleges': (context) => const CollegeListScreen(),
           '/driver_home': (context) => const DriverHomeScreen(),
           '/passenger_home': (context) => const PassengerHomeScreen(),
           '/welcome': (context) => const WelcomeScreen(),
