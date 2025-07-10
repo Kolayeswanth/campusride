@@ -31,15 +31,14 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.signInWithEmailAndRole(
+      await authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text.trim(),
-        'super_admin',
       );
 
       if (!mounted) return;
 
-      if (authService.error == null && authService.userRole == 'super_admin') {
+      if (authService.error == null && (authService.userRole == 'super_admin' || authService.userRole == 'admin')) {
         Navigator.pushReplacementNamed(context, '/admin/dashboard');
       } else if (authService.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(

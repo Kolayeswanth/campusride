@@ -52,15 +52,19 @@ class _UnifiedLoginScreenState extends State<UnifiedLoginScreen> {
   void _navigateBasedOnRole(String? role) {
     switch (role) {
       case 'driver':
-        Navigator.pushReplacementNamed(context, '/driver_home');
+        // Clear navigation stack and go to driver home
+        Navigator.of(context).pushNamedAndRemoveUntil('/driver_home', (route) => false);
         break;
       case 'admin':
       case 'super_admin':
-        Navigator.pushReplacementNamed(context, '/admin/dashboard');
+        // Clear navigation stack and go to admin dashboard  
+        Navigator.of(context).pushNamedAndRemoveUntil('/admin/dashboard', (route) => false);
         break;
+      case 'passenger':
       case 'user':
       default:
-        Navigator.pushReplacementNamed(context, '/passenger_home');
+        // Clear navigation stack and go to passenger home
+        Navigator.of(context).pushNamedAndRemoveUntil('/passenger_home', (route) => false);
         break;
     }
   }

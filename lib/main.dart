@@ -20,7 +20,6 @@ import 'features/driver/screens/driver_home_screen.dart';
 import 'features/passenger/screens/passenger_home_screen.dart';
 import 'features/auth/screens/unified_login_screen.dart';
 import 'features/auth/screens/unified_registration_screen.dart';
-import 'features/auth/screens/welcome_screen.dart';
 import 'features/auth/widgets/auth_wrapper.dart';
 
 Future<void> main() async {
@@ -91,7 +90,6 @@ class MyApp extends StatelessWidget {
           '/admin/dashboard': (context) => const SuperAdminDashboardScreen(),
           '/driver_home': (context) => const DriverHomeScreen(),
           '/passenger_home': (context) => const PassengerHomeScreen(),
-          '/welcome': (context) => const WelcomeScreen(),
         },
       ),
     );

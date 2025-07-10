@@ -24,6 +24,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Future<void> _loadRoutes() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
       _error = null;
@@ -35,16 +37,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       final routes = await tripService.fetchDriverRoutes();
       print('Routes loaded: ${routes.length}');
       
-      setState(() {
-        _routes = routes;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _routes = routes;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading routes: $e');
-      setState(() {
-        _error = 'Error loading routes: $e';
-        _isLoading = false;
-      });
+      
+      if (mounted) {
+        setState(() {
+          _error = 'Error loading routes: $e';
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -60,8 +67,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Future<void> _signOut() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.signOut();
+    
     if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/login');
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
     }
   }
 

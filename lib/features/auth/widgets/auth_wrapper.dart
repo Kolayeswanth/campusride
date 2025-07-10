@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
-import '../screens/welcome_screen.dart';
 import '../screens/unified_login_screen.dart';
 import '../../passenger/screens/passenger_home_screen.dart';
-import '../../driver/screens/driver_home_screen.dart';
 import '../../admin/screens/super_admin_dashboard_screen.dart';
+import '../../driver/screens/driver_home_screen.dart';
 
 /// AuthWrapper handles authentication state and navigation
 class AuthWrapper extends StatelessWidget {
@@ -13,10 +12,18 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, child) {
+    // Use Selector to only rebuild when the specific auth state values we care about change
+    return Selector<AuthService, ({bool isLoading, bool isAuthenticated, String? userRole})>(
+      selector: (context, authService) => (
+        isLoading: authService.isLoading,
+        isAuthenticated: authService.isAuthenticated,
+        userRole: authService.userRole,
+      ),
+      builder: (context, authState, child) {
+        print('AuthWrapper build - isLoading: ${authState.isLoading}, isAuthenticated: ${authState.isAuthenticated}, userRole: ${authState.userRole}');
+        
         // Show loading while checking auth state
-        if (authService.isLoading) {
+        if (authState.isLoading) {
           return const Scaffold(
             body: Center(
               child: CircularProgressIndicator(),
@@ -24,24 +31,24 @@ class AuthWrapper extends StatelessWidget {
           );
         }
 
-        // If not authenticated, show welcome screen
-        if (!authService.isAuthenticated) {
-          return const WelcomeScreen();
+        // If not authenticated, show login screen
+        if (!authState.isAuthenticated) {
+          return const UnifiedLoginScreen();
         }
 
-        // If authenticated but no profile/role, show college selection
-        if (authService.userRole == null) {
-          return const UnifiedLoginScreen(); // This will redirect to profile creation
+        // If authenticated but no role, redirect to login (shouldn't happen normally)
+        if (authState.userRole == null) {
+          return const UnifiedLoginScreen();
         }
 
-        // Navigate based on user role
-        switch (authService.userRole) {
+        // Return appropriate screen based on user role
+        final role = authState.userRole!;
+        switch (role) {
           case 'driver':
             return const DriverHomeScreen();
           case 'admin':
           case 'super_admin':
             return const SuperAdminDashboardScreen();
-          case 'user':
           default:
             return const PassengerHomeScreen();
         }

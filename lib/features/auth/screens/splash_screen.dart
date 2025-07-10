@@ -5,12 +5,8 @@ import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../shared/animations/animations.dart';
 import '../../../shared/widgets/widgets.dart';
-import 'login_screen.dart';
-import 'welcome_screen.dart';
-import 'role_selection_screen.dart';
-import '../../driver/screens/driver_home_screen.dart';
+import 'unified_login_screen.dart';
 import '../../passenger/screens/passenger_home_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 /// The Splash Screen widget displays when the app is launched.
 /// It shows the app logo and transitions to either the login screen
@@ -27,6 +23,7 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  int _retryCount = 0;
 
   @override
   void initState() {
@@ -64,8 +61,19 @@ class _SplashScreenState extends State<SplashScreen>
 
     final authService = Provider.of<AuthService>(context, listen: false);
 
-    // If service is still loading, wait a bit more
+    // If service is still loading, wait a bit more but with a max retry count
     if (authService.isLoading) {
+      // Add a retry counter to avoid infinite loops
+      final retryCount = _retryCount + 1;
+      if (retryCount > 5) {
+        // If we've tried too many times, just navigate to login
+        if (mounted) {
+          AnimatedNavigation.fadeInReplacement(context, const UnifiedLoginScreen());
+        }
+        return;
+      }
+      
+      _retryCount = retryCount;
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _navigateToNextScreen();
       return;
@@ -76,34 +84,31 @@ class _SplashScreenState extends State<SplashScreen>
       // Clear any existing session and show login
       await authService.signOut();
       if (mounted) {
-        AnimatedNavigation.fadeInReplacement(context, const LoginScreen());
+        AnimatedNavigation.fadeInReplacement(context, const UnifiedLoginScreen());
       }
       return;
     }
 
     // Check authentication state
     if (authService.isAuthenticated && authService.currentUser != null) {
-      // User is logged in, check role
+      // User is logged in, navigate based on role
       final userRole = authService.userRole;
 
       if (userRole == null) {
-        // User needs to select a role
+        // No role assigned, go to login
         if (mounted) {
-          AnimatedNavigation.fadeInReplacement(
-            context,
-            const RoleSelectionScreen(),
-          );
+          AnimatedNavigation.fadeInReplacement(context, const UnifiedLoginScreen());
         }
       } else if (userRole == 'driver') {
-        // User is a driver
+        // User is a driver - clear the navigation stack completely
         if (mounted) {
-          AnimatedNavigation.fadeInReplacement(
-            context,
-            const DriverHomeScreen(),
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/driver_home',
+            (route) => false
           );
         }
       } else {
-        // User is a passenger
+        // User is a passenger or other role
         if (mounted) {
           AnimatedNavigation.fadeInReplacement(
             context,
@@ -112,29 +117,11 @@ class _SplashScreenState extends State<SplashScreen>
         }
       }
     } else {
-      // User is not logged in, show welcome or login
-      final isFirstLaunch = await _isFirstLaunch();
-
+      // User is not logged in, show login screen
       if (mounted) {
-        if (isFirstLaunch) {
-          AnimatedNavigation.fadeInReplacement(context, const WelcomeScreen());
-        } else {
-          AnimatedNavigation.fadeInReplacement(context, const LoginScreen());
-        }
+        AnimatedNavigation.fadeInReplacement(context, const UnifiedLoginScreen());
       }
     }
-  }
-
-  // Placeholder function to check if this is the first launch
-  Future<bool> _isFirstLaunch() async {
-    final prefs = await SharedPreferences.getInstance();
-    final isFirstLaunch = prefs.getBool('is_first_launch') ?? true;
-
-    if (isFirstLaunch) {
-      await prefs.setBool('is_first_launch', false);
-    }
-
-    return isFirstLaunch;
   }
 
   @override

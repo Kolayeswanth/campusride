@@ -61,8 +61,7 @@ class AuthService extends ChangeNotifier {
   
   /// Initialize and listen for auth state changes
   void _initAuthState() async {
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       // Get initial session
@@ -81,28 +80,55 @@ class AuthService extends ChangeNotifier {
         switch (event) {
           case AuthChangeEvent.signedIn:
           case AuthChangeEvent.tokenRefreshed:
-            _currentUser = session?.user;
-            if (_currentUser != null) {
-              await _fetchUserRole();
-              await _saveSession(session!);
+            final newUser = session?.user;
+            if (_currentUser?.id != newUser?.id) {
+              _currentUser = newUser;
+              if (_currentUser != null) {
+                await _fetchUserRole();
+                await _saveSession(session!);
+              }
             }
             break;
           case AuthChangeEvent.signedOut:
           case AuthChangeEvent.userDeleted:
-            _currentUser = null;
-            _userRole = null;
-            await _clearSession();
+            if (_currentUser != null || _userRole != null) {
+              _currentUser = null;
+              _userRole = null;
+              await _clearSession();
+            }
             break;
           default:
             break;
         }
-        _isLoading = false;
-        notifyListeners();
+        _setLoading(false);
       });
     } catch (e) {
-      _error = e.toString();
+      _setError(e.toString());
     } finally {
-      _isLoading = false;
+      _setLoading(false);
+    }
+  }
+
+  /// Set loading state only if it has changed
+  void _setLoading(bool loading) {
+    if (_isLoading != loading) {
+      _isLoading = loading;
+      notifyListeners();
+    }
+  }
+
+  /// Set error state only if it has changed
+  void _setError(String? error) {
+    if (_error != error) {
+      _error = error;
+      notifyListeners();
+    }
+  }
+
+  /// Set success message only if it has changed
+  void _setSuccessMessage(String? message) {
+    if (_successMessage != message) {
+      _successMessage = message;
       notifyListeners();
     }
   }
@@ -117,9 +143,13 @@ class AuthService extends ChangeNotifier {
   Future<void> _clearSession() async {
     await _prefs.remove('session');
     await _prefs.remove('refresh_token');
+    final userChanged = _currentUser != null;
+    final roleChanged = _userRole != null;
     _currentUser = null;
     _userRole = null;
-    notifyListeners();
+    if (userChanged || roleChanged) {
+      notifyListeners();
+    }
   }
   
   /// Fetch user role from profiles table
@@ -159,17 +189,19 @@ class AuthService extends ChangeNotifier {
     
     try {
       final profile = await _fetchUserProfile();
-      if (profile != null) {
-        _userRole = profile['role'] as String?;
+      final newRole = profile?['role'] as String?;
+      if (_userRole != newRole) {
+        _userRole = newRole;
+        _setError(null);
+        _setLoading(false);
       }
-      _error = null;
     } catch (e) {
       // If the error is because no role exists, that's okay - we'll handle it in needsRoleSelection
-      _userRole = null;
-      _error = null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (_userRole != null) {
+        _userRole = null;
+        _setError(null);
+        _setLoading(false);
+      }
     }
   }
   
@@ -187,8 +219,7 @@ class AuthService extends ChangeNotifier {
   Future<void> updateUserRole(String role) async {
     if (_currentUser == null) return;
     
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       print('Updating user role to: $role for user ID: ${_currentUser!.id}');
@@ -226,37 +257,41 @@ class AuthService extends ChangeNotifier {
               .eq('id', _currentUser!.id);
         }
         
-        _userRole = role;
-        _error = null;
+        // Update local state only if it changed
+        if (_userRole != role) {
+          _userRole = role;
+        }
+        _setError(null);
         print('User role updated successfully to: $role');
       } on SocketException catch (e) {
         print('Network error: $e');
-        _error = 'Network error: Please check your internet connection and try again.';
+        _setError('Network error: Please check your internet connection and try again.');
       } on AuthException catch (e) {
         print('Auth error: $e');
-        _error = 'Authentication error: ${e.message}';
+        _setError('Authentication error: ${e.message}');
       }
     } catch (e) {
       print('Error updating user role: $e');
-      _error = 'Failed to update user role: $e';
       
       // More detailed error logging
+      String errorMessage;
       if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
-        _error = 'Network error: Unable to connect to the server. Please check your internet connection.';
+        errorMessage = 'Network error: Unable to connect to the server. Please check your internet connection.';
       } else if (e.toString().contains('AuthException')) {
-        _error = 'Authentication error: Your session may have expired. Please sign in again.';
+        errorMessage = 'Authentication error: Your session may have expired. Please sign in again.';
+      } else {
+        errorMessage = 'Failed to update user role: $e';
       }
+      _setError(errorMessage);
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
   /// Sign in with email and password
   Future<void> signInWithEmail(String email, String password) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       await _supabase.auth.signInWithPassword(
@@ -264,21 +299,18 @@ class AuthService extends ChangeNotifier {
         password: password,
       );
     } on AuthException catch (e) {
-      _error = e.message;
-      _isLoading = false;
-      notifyListeners();
+      _setError(e.message);
+      _setLoading(false);
     } catch (e) {
-      _error = 'An unexpected error occurred';
-      _isLoading = false;
-      notifyListeners();
+      _setError('An unexpected error occurred');
+      _setLoading(false);
     }
   }
   
   /// Sign in with Google
   Future<void> signInWithGoogle() async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       // Start Google Sign In flow
@@ -300,17 +332,15 @@ class AuthService extends ChangeNotifier {
       
       // Auth state change listener will handle the rest
     } catch (e) {
-      _error = 'Failed to sign in with Google: ${e.toString()}';
-      _isLoading = false;
-      notifyListeners();
+      _setError('Failed to sign in with Google: ${e.toString()}');
+      _setLoading(false);
     }
   }
   
   /// Register a new user
   Future<void> registerWithEmail(String email, String password, String name) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       print('Attempting to sign up user with email: $email');
@@ -365,69 +395,65 @@ class AuthService extends ChangeNotifier {
           await _supabase.from('profiles').insert(profileData);
           print('User profile created successfully');
           
-          // Set local user role
-          _userRole = 'user';
+          // Set local user role only if it changed
+          if (_userRole != 'user') {
+            _userRole = 'user';
+          }
         } catch (profileError) {
           print('Error creating user profile: $profileError');
           // If profile creation fails, we should log the specific error
           // but we don't need to fail the entire registration process
           // as the user is already authenticated
-          _error = 'Registration successful but profile setup failed: $profileError';
-          _isLoading = false;
-          notifyListeners();
+          _setError('Registration successful but profile setup failed: $profileError');
+          _setLoading(false);
+          return;
         }
 
       } else {
         print('Sign up response did not contain user object');
-        _error = 'Registration failed: Please try again';
+        _setError('Registration failed: Please try again');
       }
     } on AuthException catch (e) {
       print('Auth Exception during registration: ${e.message}');
-      _error = e.message;
+      _setError(e.message);
     } catch (e) {
       print('Unexpected error during registration: $e');
-      _error = 'An unexpected error occurred. Please try again.';
+      _setError('An unexpected error occurred. Please try again.');
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
   /// Reset password
   Future<bool> resetPassword(String email) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       await _supabase.auth.resetPasswordForEmail(
         email,
         redirectTo: 'io.supabase.campusride://reset-callback/',
       );
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
       return true;
     } catch (e) {
-      _error = 'Failed to send password reset email';
-      _isLoading = false;
-      notifyListeners();
+      _setError('Failed to send password reset email');
+      _setLoading(false);
       return false;
     }
   }
   
   /// Sign out
   Future<void> signOut() async {
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       await _supabase.auth.signOut();
       await _clearSession();
     } catch (e) {
-      _error = e.toString();
+      _setError(e.toString());
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
@@ -438,8 +464,7 @@ class AuthService extends ChangeNotifier {
   }) async {
     if (_currentUser == null) return;
     
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       await _supabase
@@ -452,12 +477,11 @@ class AuthService extends ChangeNotifier {
             'created_at': DateTime.now().toIso8601String(),
           });
       
-      _error = null;
+      _setError(null);
     } catch (e) {
-      _error = 'Failed to update driver information: $e';
+      _setError('Failed to update driver information: $e');
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
@@ -530,104 +554,15 @@ class AuthService extends ChangeNotifier {
     }
   }
   
-  /// Sign in with email and password for a specific role
-  Future<void> signInWithEmailAndRole(String email, String password, String role) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-    
-    try {
-      print('Attempting login for: $email as $role');
-      
-      // First, check network connectivity by attempting a simple request
-      try {
-        await _supabase.from('profiles').select('count').limit(1);
-        print('Network connectivity check passed');
-      } catch (e) {
-        if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
-          throw Exception('Network error: Unable to connect to the server. Please check your internet connection and try again.');
-        }
-        print('Network check failed with: $e');
-      }
-      
-      final response = await _supabase.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
-      
-      if (response.user != null) {
-        print('Authentication successful, setting up user profile...');
-        
-        // Try to get existing profile
-        try {
-          final profile = await _supabase
-              .from('profiles')
-              .select('role')
-              .eq('id', response.user!.id)
-              .maybeSingle();
-              
-          if (profile != null) {
-            // User has existing profile, use their role
-            _userRole = profile['role'] as String;
-            print('Existing user role: $_userRole');
-          } else {
-            // New user, create profile with specified role
-            await _supabase.from('profiles').insert({
-              'id': response.user!.id,
-              'email': email,
-              'role': role,
-              'created_at': DateTime.now().toIso8601String(),
-              'updated_at': DateTime.now().toIso8601String(),
-            });
-            _userRole = role;
-            print('Created new user profile with role: $role');
-          }
-          
-          _currentUser = response.user;
-          print('Login successful for $_userRole');
-        } catch (e) {
-          await _supabase.auth.signOut();
-          if (e.toString().contains('single')) {
-            throw Exception('Profile setup failed: Please contact the administrator.');
-          }
-          rethrow;
-        }
-      } else {
-        throw Exception('Login failed: Invalid credentials.');
-      }
-    } on SocketException catch (e) {
-      print('Network error during login: $e');
-      _error = 'Network error: Please check your internet connection and try again.';
-    } on AuthException catch (e) {
-      print('Auth error during login: ${e.message}');
-      _error = e.message;
-    } catch (e) {
-      print('Error during login: $e');
-      _error = e.toString();
-      
-      // Provide more user-friendly error messages
-      if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
-        _error = 'Network error: Unable to connect to the server. Please check your internet connection.';
-      } else if (e.toString().contains('Invalid login credentials')) {
-        _error = 'Invalid email or password. Please check your credentials and try again.';
-      }
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-  
   /// Update user's college selection
   Future<void> selectCollege(String collegeId) async {
     if (_currentUser == null) {
-      _error = 'User not authenticated';
-      notifyListeners();
+      _setError('User not authenticated');
       return;
     }
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
 
     try {
       print('Selecting college with ID: $collegeId for user: ${_currentUser!.id}');
@@ -647,18 +582,17 @@ class AuthService extends ChangeNotifier {
       print('Updated profile after college selection: $updatedProfile');
       
       if (updatedProfile != null && updatedProfile['college_id'] == collegeId) {
-        _error = null;
-        _successMessage = 'College selected successfully';
+        _setError(null);
+        _setSuccessMessage('College selected successfully');
         print('College selection verified successfully');
       } else {
         throw Exception('College selection was not saved properly');
       }
     } catch (e) {
       print('Error selecting college: $e');
-      _error = 'Failed to select college: $e';
+      _setError('Failed to select college: $e');
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
 
@@ -675,9 +609,8 @@ class AuthService extends ChangeNotifier {
       return;
     }
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
 
     try {
       await _supabase.from('profiles').insert({
@@ -691,14 +624,16 @@ class AuthService extends ChangeNotifier {
         'updated_at': DateTime.now().toIso8601String(),
       });
 
-      _userRole = 'user';
-      _error = null;
-      _successMessage = 'Profile created successfully';
+      if (_userRole != 'user') {
+        _userRole = 'user';
+      }
+      _setError(null);
+      _setSuccessMessage('Profile created successfully');
     } catch (e) {
       print('Error creating profile: $e');
-      _error = 'Failed to create profile: $e';
+      _setError('Failed to create profile: $e');
     } finally {
-      _isLoading = false;
+      _setLoading(false);
       notifyListeners();
     }
   }
@@ -707,13 +642,12 @@ class AuthService extends ChangeNotifier {
   Future<void> submitDriverRequest(Map<String, dynamic> requestData) async {
     if (_currentUser == null) {
       _error = 'User not authenticated';
-      notifyListeners();
+      _setLoading(false);
       return;
     }
 
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
 
     try {
       // Get user's college ID
@@ -722,8 +656,8 @@ class AuthService extends ChangeNotifier {
       
       if (profile == null || profile['college_id'] == null) {
         print('Profile is null or missing college_id. Profile: $profile');
-        _error = 'Please select your college first before applying to become a driver. Go to your profile to update your college information.';
-        notifyListeners();
+        _setError('Please select your college first before applying to become a driver. Go to your profile to update your college information.');
+        _setLoading(false);
         return;
       }
 
@@ -743,11 +677,10 @@ class AuthService extends ChangeNotifier {
       _successMessage = 'Driver request submitted successfully. You will be notified once approved.';
     } catch (e) {
       print('Error submitting driver request: $e');
-      _error = 'Failed to submit driver request: $e';
+      _setError('Failed to submit driver request: $e');
       throw e;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
 

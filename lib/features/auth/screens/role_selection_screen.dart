@@ -59,9 +59,11 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
     if (authService.error == null) {
       // Successfully updated role
       if (role == 'driver') {
-        Navigator.of(context).pushReplacementNamed('/driver_dashboard');
+        // Clear entire navigation stack and go to driver home
+        Navigator.of(context).pushNamedAndRemoveUntil('/driver_home', (route) => false);
       } else {
-        Navigator.of(context).pushReplacementNamed('/passenger_home');
+        // Clear entire navigation stack and go to passenger home
+        Navigator.of(context).pushNamedAndRemoveUntil('/passenger_home', (route) => false);
       }
     }
   }
