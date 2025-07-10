@@ -46,11 +46,17 @@ class RouteManagementService extends ChangeNotifier {
   }) async {
     _setLoading(true);
     try {
+      // Generate a unique text ID for the route
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final random = (1000 + (DateTime.now().microsecond % 9000));
+      final routeId = 'route_${timestamp}_$random';
+      
       await _supabase.from('routes').insert({
+        'id': routeId,  // Explicitly provide the ID
         'college_code': collegeCode,  // Now correctly named
         'name': routeName,
-        'start_location': startLocation,
-        'end_location': endLocation,
+        'start_location': startLocation is Map ? startLocation : {'name': startLocation},
+        'end_location': endLocation is Map ? endLocation : {'name': endLocation},
         'polyline_data': polylineData,
         'distance_km': distanceKm,
         'estimated_duration_minutes': estimatedDurationMinutes,

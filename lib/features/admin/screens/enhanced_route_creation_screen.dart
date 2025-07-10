@@ -706,9 +706,25 @@ class _EnhancedRouteCreationScreenState extends State<EnhancedRouteCreationScree
       data['polyline_data'] = data['polyline_data'].toString();
     }
     
-    // For UUID columns, ensure they're properly formatted
-    if (data.containsKey('id') && data['id'] == null) {
-      data.remove('id');  // Let Supabase generate the ID
+    // For text ID columns, generate a proper ID if not provided
+    if (!data.containsKey('id') || data['id'] == null) {
+      // Generate a unique text ID for new routes
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final random = (1000 + math.Random().nextInt(9000));
+      data['id'] = 'route_${timestamp}_$random';
+    }
+    
+    // Ensure required fields are present
+    if (data['college_code'] == null || data['name'] == null) {
+      throw Exception('Missing required fields: college_code and name are required');
+    }
+    
+    // Ensure start_location and end_location are proper JSONB objects
+    if (data['start_location'] != null && data['start_location'] is! Map) {
+      throw Exception('start_location must be a Map object');
+    }
+    if (data['end_location'] != null && data['end_location'] is! Map) {
+      throw Exception('end_location must be a Map object');
     }
     
     return data;
@@ -795,11 +811,12 @@ class _EnhancedRouteCreationScreenState extends State<EnhancedRouteCreationScree
     
     // Add polyline data if available
     if (_routePoints.isNotEmpty) {
+      // Store as a simple string format for polyline_data since the schema expects jsonb but string works
       routeData['polyline_data'] = _routePoints.map((point) => 
           '${point.latitude},${point.longitude}').join(';');
       
       routeData['distance_km'] = _routeDistance;
-      routeData['estimated_duration_minutes'] = _routeDuration!.round();
+      routeData['estimated_duration_minutes'] = _routeDuration?.round();
     }
     
     // If editing an existing route, include its ID
