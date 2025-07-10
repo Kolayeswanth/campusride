@@ -243,16 +243,20 @@ class _UnifiedRegistrationScreenState extends State<UnifiedRegistrationScreen> {
                         DropdownButtonFormField<String>(
                           value: _selectedCollegeId,
                           decoration: InputDecoration(
-                            labelText: 'Select College (${_colleges.length} available)',
+                            labelText: 'Select College',
                             prefixIcon: const Icon(Icons.school_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
+                          isExpanded: true,
                           items: _colleges.map((college) {
                             return DropdownMenuItem<String>(
                               value: college['id'],
-                              child: Text(college['name']),
+                              child: Text(
+                                college['name'],
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             );
                           }).toList(),
                           onChanged: (value) {

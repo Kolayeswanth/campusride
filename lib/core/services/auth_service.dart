@@ -351,8 +351,10 @@ class AuthService extends ChangeNotifier {
           final profileData = {
             'id': response.user!.id,
             'email': email,
+            'display_name': name,
             'role': 'user', // Default role changed to 'user'
             'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
           };
           
           // Only add college_id if we have one
@@ -360,7 +362,7 @@ class AuthService extends ChangeNotifier {
             profileData['college_id'] = defaultCollegeId;
           }
           
-          await _supabase.from('user_profiles').insert(profileData);
+          await _supabase.from('profiles').insert(profileData);
           print('User profile created successfully');
           
           // Set local user role
@@ -512,10 +514,10 @@ class AuthService extends ChangeNotifier {
         try {
           print('\nTesting profiles table write:');
           print('Attempting to upsert into profiles...');
-          await _supabase.from('user_profiles').upsert({
+          await _supabase.from('profiles').upsert({
             'id': _currentUser!.id,
             'email': _currentUser!.email,
-            'role': 'passenger',
+            'role': 'user',
             'updated_at': DateTime.now().toIso8601String(),
           });
           print('Profile upsert success');
@@ -539,7 +541,7 @@ class AuthService extends ChangeNotifier {
       
       // First, check network connectivity by attempting a simple request
       try {
-        await _supabase.from('user_profiles').select('count').limit(1);
+        await _supabase.from('profiles').select('count').limit(1);
         print('Network connectivity check passed');
       } catch (e) {
         if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
@@ -570,11 +572,12 @@ class AuthService extends ChangeNotifier {
             print('Existing user role: $_userRole');
           } else {
             // New user, create profile with specified role
-            await _supabase.from('user_profiles').insert({
+            await _supabase.from('profiles').insert({
               'id': response.user!.id,
               'email': email,
               'role': role,
               'created_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
             });
             _userRole = role;
             print('Created new user profile with role: $role');
@@ -677,12 +680,11 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _supabase.from('user_profiles').insert({
+      await _supabase.from('profiles').insert({
         'id': _currentUser!.id,
         'email': _currentUser!.email!,
-        'name': displayName,
+        'display_name': displayName,
         'college_id': collegeId,
-        'phone': phone,
         'photo_url': photoUrl,
         'role': 'user',
         'created_at': DateTime.now().toIso8601String(),
@@ -809,7 +811,7 @@ class AuthService extends ChangeNotifier {
         try {
           final profileResponse = await _supabase
               .from('profiles')
-              .select('id, email, name')
+              .select('id, email, display_name')
               .eq('id', request['user_id'])
               .single();
           request['profiles'] = profileResponse;
