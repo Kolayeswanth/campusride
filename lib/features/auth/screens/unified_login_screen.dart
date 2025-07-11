@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../shared/widgets/widgets.dart';
+import '../../admin/screens/super_admin_login_screen.dart';
 
 /// Unified login screen for all user types
 class UnifiedLoginScreen extends StatefulWidget {
@@ -17,11 +19,17 @@ class _UnifiedLoginScreenState extends State<UnifiedLoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  
+  // Admin long-press feature
+  Timer? _adminLongPressTimer;
+  int _adminCountdown = 10;
+  bool _isAdminLongPressing = false;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _adminLongPressTimer?.cancel();
     super.dispose();
   }
 
@@ -52,19 +60,15 @@ class _UnifiedLoginScreenState extends State<UnifiedLoginScreen> {
   void _navigateBasedOnRole(String? role) {
     switch (role) {
       case 'driver':
-        // Clear navigation stack and go to driver home
-        Navigator.of(context).pushNamedAndRemoveUntil('/driver_home', (route) => false);
+        Navigator.pushReplacementNamed(context, '/driver_home');
         break;
       case 'admin':
       case 'super_admin':
-        // Clear navigation stack and go to admin dashboard  
-        Navigator.of(context).pushNamedAndRemoveUntil('/admin/dashboard', (route) => false);
+        Navigator.pushReplacementNamed(context, '/admin/dashboard');
         break;
-      case 'passenger':
       case 'user':
       default:
-        // Clear navigation stack and go to passenger home
-        Navigator.of(context).pushNamedAndRemoveUntil('/passenger_home', (route) => false);
+        Navigator.pushReplacementNamed(context, '/passenger_home');
         break;
     }
   }
@@ -86,6 +90,47 @@ class _UnifiedLoginScreenState extends State<UnifiedLoginScreen> {
         _navigateBasedOnRole(authService.userRole);
       }
     }
+  }
+
+  // Admin Long-Press Feature Methods
+  void _startAdminLongPress() {
+    setState(() {
+      _isAdminLongPressing = true;
+      _adminCountdown = 10;
+    });
+
+    _adminLongPressTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _adminCountdown--;
+      });
+
+      if (_adminCountdown <= 0) {
+        _navigateToAdminLogin();
+      }
+    });
+  }
+
+  void _cancelAdminLongPress() {
+    _adminLongPressTimer?.cancel();
+    setState(() {
+      _isAdminLongPressing = false;
+      _adminCountdown = 10;
+    });
+  }
+
+  void _navigateToAdminLogin() {
+    _adminLongPressTimer?.cancel();
+    setState(() {
+      _isAdminLongPressing = false;
+      _adminCountdown = 10;
+    });
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SuperAdminLoginScreen(),
+      ),
+    );
   }
 
   @override
@@ -173,15 +218,22 @@ class _UnifiedLoginScreenState extends State<UnifiedLoginScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Sign In Button
+                // Sign In Button with Long-Press Admin Access
                 Consumer<AuthService>(
                   builder: (context, authService, child) {
-                    return CustomButton.primary(
-                      text: 'Sign In',
-                      onPressed: authService.isLoading ? null : _signIn,
-                      isFullWidth: true,
-                      size: ButtonSize.large,
-                      isLoading: authService.isLoading,
+                    return GestureDetector(
+                      onLongPressStart: (_) => _startAdminLongPress(),
+                      onLongPressEnd: (_) => _cancelAdminLongPress(),
+                      onLongPressCancel: _cancelAdminLongPress,
+                      child: CustomButton.primary(
+                        text: _isAdminLongPressing 
+                            ? 'Admin Access (${_adminCountdown}s)' 
+                            : 'Sign In',
+                        onPressed: authService.isLoading ? null : _signIn,
+                        isFullWidth: true,
+                        size: ButtonSize.large,
+                        isLoading: authService.isLoading,
+                      ),
                     );
                   },
                 ),

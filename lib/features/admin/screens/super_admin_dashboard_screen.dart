@@ -7,6 +7,7 @@ import '../models/college.dart';
 import 'driver_requests_management_screen.dart';
 import 'drivers_management_screen.dart';
 import 'college_details_screen.dart';
+import 'trip_management_screen.dart';
 
 class SuperAdminDashboardScreen extends StatefulWidget {
   const SuperAdminDashboardScreen({Key? key}) : super(key: key);
@@ -85,38 +86,56 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        Row(
+                        Column(
                           children: [
-                            Expanded(
-                              child: _QuickActionCard(
-                                title: 'Driver Requests',
-                                description: 'Review driver applications',
-                                icon: Icons.drive_eta,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const DriverRequestsManagementScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _QuickActionCard(
+                                    title: 'Driver Requests',
+                                    description: 'Review driver applications',
+                                    icon: Icons.drive_eta,
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => const DriverRequestsManagementScreen(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _QuickActionCard(
+                                    title: 'Manage Drivers',
+                                    description: 'View and manage approved drivers',
+                                    icon: Icons.people,
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => const DriversManagementScreen(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _QuickActionCard(
-                                title: 'Manage Drivers',
-                                description: 'View and manage approved drivers',
-                                icon: Icons.people,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const DriversManagementScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
+                            const SizedBox(height: 12),
+                            _QuickActionCard(
+                              title: 'Trip Management',
+                              description: 'Monitor and control active trips',
+                              icon: Icons.location_on,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const TripManagementScreen(),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),
