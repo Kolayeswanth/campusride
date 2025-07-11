@@ -5,26 +5,17 @@ import 'dart:math';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/map_service.dart';
-import '../../../core/utils/location_utils.dart';
-import '../../../core/theme/theme.dart';
-import '../../../core/widgets/platform_safe_map.dart';
 import '../widgets/driver_id_dialog.dart';
-import '../widgets/trip_controls.dart';
 import '../models/village_crossing.dart';
-import '../widgets/trip_status_card.dart';
-import '../widgets/speed_tracker.dart';
 import '../widgets/village_crossing_log.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/map_constants.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
@@ -49,7 +40,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   List<latlong2.LatLng> _completedPoints = [];
   double _completion = 0.0;
   Timer? _locationUpdateTimer;
-  Symbol? _driverMarker;
   Symbol? _destinationMarker;
   Line? _routeLine;
   Line? _completedRouteLine;
@@ -62,53 +52,52 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   bool _isSearching = false;
   List<Map<String, dynamic>> _searchResults = [];
   
-  // Animation controller for pulsing effect
+  // Animation timer for pulsing effect
   Timer? _animationTimer;
-  double _animationProgress = 0.0;
   Symbol? _busIconId;
   
-  // Add these new variables at the start of the class
+  // Map interaction variables
   bool _userInteractingWithMap = false;
   DateTime? _lastUserInteraction;
 
-  // Add new state variables
+  // State variables
   TextEditingController _startLocationController = TextEditingController();
   TextEditingController _destinationController = TextEditingController();
   TextEditingController _driverIdController = TextEditingController();
   String? _estimatedDistance;
   String? _estimatedTime;
   bool _isEditingDriverId = false;
-  LatLng? _lastClickedPoint;
   DateTime? _estimatedArrivalTime;
 
-  // Add new state variables for start location search
+  // Start location search results
   List<Map<String, dynamic>> _startLocationResults = [];
   bool _isSearchingStartLocation = false;
+  LatLng? _lastClickedPoint;
 
-  // Add new state variables for speed tracking
+  // Time and distance display
+  String _timeToDestination = '--:--';
+  String _distanceRemaining = '-- km';
+
+  // Speed tracking variables
   double _lastDeviationCheckDistance = 0.0;
   static const double _deviationThreshold = 50.0; // meters
   static const double _deviationCheckInterval = 100.0; // meters
 
-  String _timeToDestination = '--:--';
-  String _distanceRemaining = '-- km';
-
-  // Add new state variable for zoom control
+  // Zoom control
   bool _shouldAutoZoom = false;
   static const double _autoZoomRadius = 3.0; // 3 km radius
 
-  // Add new state variables for UI visibility
+  // UI visibility
   bool _isUIVisible = true;
   bool _isManualControl = false;
 
-  // Add new state variables for clear icon visibility
+  // Clear icon visibility
   bool _showStartClearIcon = false;
   bool _showDestClearIcon = false;
 
   // Village tracking variables
   Set<String> _passedVillages = {};
   List<VillageCrossing> _villageCrossings = [];
-  Timer? _villageCheckTimer;
   static const double _villageCheckInterval = 500.0; // meters
   double _lastVillageCheckDistance = 0.0;
   bool _showVillageCrossingLog = false;
@@ -116,7 +105,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // Trip tracking
   String? _tripId;
 
-  double _currentSpeed = 0.0; // Add this field to track current speed
+  double _currentSpeed = 0.0; // Current speed in m/s
 
   // Add method to toggle UI visibility
   void _toggleUIVisibility() {
