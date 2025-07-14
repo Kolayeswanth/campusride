@@ -16,8 +16,8 @@ class DriverTrackingHelper {
       for (final driver in drivers) {
         try {
           await supabase
-              .from('user_profiles')
-              .select('id, email, name')
+              .from('profiles')
+              .select('id, email, display_name')
               .eq('id', driver['user_id'])
               .limit(1);
         } catch (e) {
@@ -25,11 +25,11 @@ class DriverTrackingHelper {
           
           // If needed, create or update the user profile entry
           try {
-            await supabase.from('user_profiles').upsert({
+            await supabase.from('profiles').upsert({
               'id': driver['user_id'],
               'email': 'driver_${driver['id']}@example.com', // Placeholder
               'role': 'driver',
-              'name': 'Driver ${driver['id']}' // Default name
+              'display_name': 'Driver ${driver['id']}' // Default name
             });
             debugPrint('Created profile for driver ${driver['user_id']}');
           } catch (e) {

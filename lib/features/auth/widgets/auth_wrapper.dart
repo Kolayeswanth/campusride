@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../screens/unified_login_screen.dart';
-import '../../passenger/screens/passenger_home_screen.dart';
+import '../../passenger/screens/main_navigation_screen.dart';
 import '../../admin/screens/super_admin_dashboard_screen.dart';
 import '../../driver/screens/driver_home_screen.dart';
 
@@ -50,7 +50,7 @@ class AuthWrapper extends StatelessWidget {
           case 'super_admin':
             return const SuperAdminDashboardScreen();
           default:
-            return const PassengerHomeScreen();
+            return const MainNavigationScreen();
         }
       },
     );

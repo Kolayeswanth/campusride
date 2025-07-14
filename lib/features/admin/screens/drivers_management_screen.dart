@@ -29,14 +29,24 @@ class _DriversManagementScreenState extends State<DriversManagementScreen> {
     });
 
     try {
+      print('🔍 Loading drivers for manage drivers screen...');
       final authService = Provider.of<AuthService>(context, listen: false);
       final drivers = await authService.getAllDrivers();
+      
+      print('✅ Loaded ${drivers.length} drivers');
+      for (int i = 0; i < drivers.length; i++) {
+        final driver = drivers[i];
+        print('   Driver $i: ${driver['id']} - Active: ${driver['is_active']}');
+        print('     Profile: ${driver['profiles']?['display_name'] ?? 'No profile'}');
+        print('     College: ${driver['colleges']?['name'] ?? 'No college'}');
+      }
       
       setState(() {
         _drivers = drivers;
         _isLoading = false;
       });
     } catch (e) {
+      print('❌ Error loading drivers: $e');
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -46,21 +56,29 @@ class _DriversManagementScreenState extends State<DriversManagementScreen> {
 
   Future<void> _toggleDriverStatus(String driverId, bool currentStatus) async {
     try {
+      print('🔄 Toggling driver status: $driverId from $currentStatus to ${!currentStatus}');
+      
       final authService = Provider.of<AuthService>(context, listen: false);
       await authService.updateDriverStatus(driverId, !currentStatus);
       
       if (mounted) {
+        final statusText = !currentStatus ? 'activated' : 'deactivated';
+        final roleText = !currentStatus ? 'driver' : 'user';
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Driver ${!currentStatus ? 'activated' : 'deactivated'} successfully'
+              'Driver $statusText successfully. User role changed to $roleText.'
             ),
             backgroundColor: Colors.green,
           ),
         );
+        
+        print('✅ Driver status updated successfully');
         await _loadDrivers(); // Reload drivers
       }
     } catch (e) {
+      print('❌ Error updating driver status: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -188,20 +206,51 @@ class _DriversManagementScreenState extends State<DriversManagementScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
+                                            // Driver Name (show NULL if doesn't exist)
                                             Text(
-                                              profile?['display_name'] ?? 
-                                              profile?['email'] ?? 'Unknown Driver',
+                                              profile?['display_name'] ?? 'NULL',
                                               style: AppTypography.titleMedium.copyWith(
                                                 fontWeight: FontWeight.w600,
+                                                color: profile?['display_name'] == null 
+                                                    ? AppColors.textSecondary 
+                                                    : null,
                                               ),
                                             ),
-                                            if (college != null)
+                                            const SizedBox(height: 2),
+                                            // Email
+                                            Text(
+                                              profile?['email'] ?? 'No email',
+                                              style: AppTypography.bodySmall.copyWith(
+                                                color: AppColors.textSecondary,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            // License Number
+                                            Text(
+                                              'License: ${driver['license_number'] ?? 'N/A'}',
+                                              style: AppTypography.bodySmall.copyWith(
+                                                color: AppColors.textSecondary,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            // Experience
+                                            Text(
+                                              'Experience: ${driver['driving_experience_years'] ?? 0} years',
+                                              style: AppTypography.bodySmall.copyWith(
+                                                color: AppColors.textSecondary,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            if (college != null) ...[
+                                              const SizedBox(height: 2),
                                               Text(
                                                 college['name'] ?? 'Unknown College',
                                                 style: AppTypography.bodySmall.copyWith(
                                                   color: AppColors.textSecondary,
                                                 ),
                                               ),
+                                            ],
                                           ],
                                         ),
                                       ),

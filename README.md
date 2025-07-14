@@ -153,12 +153,10 @@ lib/
 
 ## Developer Documentation
 
-### Schema Cache Management
-The app includes utilities to manage Supabase/PostgREST schema cache issues:
+### Schema Management
+The app uses Supabase with proper schema management. Database schema files are located in:
 
-1. `FINAL_SCHEMA_CACHE_FIX.sql` - SQL script to update schema and refresh cache
-2. `schema_cache_test.dart` - Test tool to verify schema compatibility
-3. `refresh_schema_cache.ps1` - PowerShell script to force cache refresh via API
-4. `SCHEMA_CACHE_FIX_GUIDE.md` - Detailed troubleshooting guide
+- `lib/core/data/public_schema.sql` - Main database schema
+- `lib/core/data/realtime_tables_schema.sql` - Realtime configuration schema
 
-Run `run_schema_test.bat` to test schema compatibility before deploying changes.
+For database troubleshooting, check the Flutter debug console for any schema-related errors.

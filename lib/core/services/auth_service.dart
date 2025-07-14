@@ -841,8 +841,8 @@ class AuthService extends ChangeNotifier {
       for (final driver in drivers) {
         try {
           final profileResponse = await _supabase
-              .from('user_profiles')
-              .select('id, email, name')
+              .from('profiles')
+              .select('id, email, display_name')
               .eq('id', driver['user_id'])
               .single();
           driver['profiles'] = profileResponse;
@@ -880,8 +880,8 @@ class AuthService extends ChangeNotifier {
         // Fetch user profile
         try {
           final profileResponse = await _supabase
-              .from('user_profiles')
-              .select('id, email, name')
+              .from('profiles')
+              .select('id, email, display_name')
               .eq('id', driver['user_id'])
               .single();
           driver['profiles'] = profileResponse;
@@ -918,6 +918,16 @@ class AuthService extends ChangeNotifier {
     }
 
     try {
+      // First get the driver's user_id
+      final driverResponse = await _supabase
+          .from('drivers')
+          .select('user_id')
+          .eq('id', driverId)
+          .single();
+      
+      final userId = driverResponse['user_id'] as String;
+
+      // Update driver status
       await _supabase
           .from('drivers')
           .update({
@@ -925,8 +935,19 @@ class AuthService extends ChangeNotifier {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', driverId);
+
+      // If deactivating driver, change their role to 'user'
+      // If activating driver, change their role to 'driver'
+      await _supabase
+          .from('profiles')
+          .update({
+            'role': isActive ? 'driver' : 'user',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', userId);
       
-      print('Driver status updated successfully');
+      print('Driver status updated successfully: ${isActive ? 'activated' : 'deactivated'}');
+      print('User role updated to: ${isActive ? 'driver' : 'user'}');
     } catch (e) {
       print('Error updating driver status: $e');
       throw Exception('Failed to update driver status: $e');

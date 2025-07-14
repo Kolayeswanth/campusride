@@ -16,6 +16,16 @@ class BusService {
         });
   }
 
+  Future<List<BusInfo>> getAllBuses() async {
+    try {
+      final response = await _supabase.from(_table).select();
+      return response.map<BusInfo>((item) => BusInfo.fromJson(item)).toList();
+    } catch (e) {
+      LoggerUtil.error('Error getting all buses', e);
+      return [];
+    }
+  }
+
   Future<BusInfo?> getBusById(String busId) async {
     try {
       final response =

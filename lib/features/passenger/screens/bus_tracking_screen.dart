@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' as maplibre;
 import 'package:provider/provider.dart';
 import 'package:campusride/core/services/map_service.dart';
 import 'package:campusride/core/services/trip_service.dart';
@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart' as geo;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class BusTrackingScreen extends StatefulWidget {
   final String busId;
@@ -23,7 +24,7 @@ class BusTrackingScreen extends StatefulWidget {
 }
 
 class _BusTrackingScreenState extends State<BusTrackingScreen> {
-  MaplibreMapController? _mapController;
+  maplibre.MapLibreMapController? _mapController;
   late MapService _mapService;
   late TripService _tripService;
   bool _isLoading = false;
@@ -34,7 +35,6 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
   bool _hasShownLocationMessage = false;
   latlong2.LatLng? _selectedDestination;
   Timer? _animationTimer;
-  final double _pulseAnimation = 0.0;
   List<Map<String, dynamic>> _searchResults = [];
   final TextEditingController _searchController = TextEditingController();
   geo.Position? _currentPosition;
@@ -46,6 +46,10 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
   String _estimatedTime = '';
   Timer? _etaUpdateTimer;
 
+  // Driver location tracking
+  StreamSubscription? _driverLocationSubscription;
+  geo.Position? _driverPosition;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +57,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     _tripService = Provider.of<TripService>(context, listen: false);
     _initializeLocation();
     _driverIdController.text = widget.busId;
+    _startDriverLocationTracking(); // Start tracking driver location
   }
 
   @override
@@ -63,6 +68,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     _destinationController.dispose();
     _driverIdController.dispose();
     _etaUpdateTimer?.cancel();
+    _driverLocationSubscription?.cancel(); // Clean up driver location subscription
     super.dispose();
   }
 
@@ -82,7 +88,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         });
       }
     } catch (e) {
-      print('Error initializing location: $e');
+      
     } finally {
       setState(() {
         _isLoading = false;
@@ -90,9 +96,22 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     }
   }
 
-  void _initializeMap(MaplibreMapController controller) {
+  void _initializeMap(maplibre.MapLibreMapController controller) {
     _mapController = controller;
     _getCurrentLocation();
+  }
+
+  // Helper functions to convert between LatLng types
+  maplibre.LatLng _toMapLibreLatLng(latlong2.LatLng point) {
+    return maplibre.LatLng(point.latitude, point.longitude);
+  }
+
+  latlong2.LatLng _toLatLong2(maplibre.LatLng point) {
+    return latlong2.LatLng(point.latitude, point.longitude);
+  }
+
+  List<maplibre.LatLng> _convertRoutePoints(List<latlong2.LatLng> points) {
+    return points.map((point) => _toMapLibreLatLng(point)).toList();
   }
 
   /// Update driver marker with smooth animation
@@ -105,7 +124,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     // Update marker position
     await _mapService.updateMarker(
       'driver',
-      currentPoint,
+      _toMapLibreLatLng(currentPoint),
       data: {
         'id': 'driver',
         'type': 'bus',
@@ -115,7 +134,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
     // If live tracking is active, update the route
     if (_isLiveTracking && _selectedDestination != null) {
-      await _updateRouteToPoint(LatLng(
+      await _updateRouteToPoint(maplibre.LatLng(
           _selectedDestination!.latitude, _selectedDestination!.longitude));
     }
   }
@@ -137,8 +156,8 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
         // Animate to current location with higher zoom
         await _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(
-            LatLng(position.latitude, position.longitude),
+          maplibre.CameraUpdate.newLatLngZoom(
+            maplibre.LatLng(position.latitude, position.longitude),
             17.0, // Higher zoom for better visibility
           ),
         );
@@ -171,7 +190,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         );
       }
     } catch (e) {
-      print('Error getting location: $e');
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error getting location: $e')),
       );
@@ -182,7 +201,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     }
   }
 
-  Future<void> _selectDestination(LatLng destination) async {
+  Future<void> _selectDestination(maplibre.LatLng destination) async {
     try {
       // Remove any existing destination marker and routes
       await _mapService.removeMarkerById('destination');
@@ -190,7 +209,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
       // Add a new marker at the selected location
       await _mapService.addMarker(
-        position: latlong2.LatLng(destination.latitude, destination.longitude),
+        position: _toMapLibreLatLng(latlong2.LatLng(destination.latitude, destination.longitude)),
         data: {'id': 'destination'},
         title: 'Destination',
         iconColor: Colors.red,
@@ -211,22 +230,21 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         if (routePoints.isNotEmpty) {
           // Draw the new route with a more visible style
           await _mapService.addRoute(
-            points: routePoints,
+            points: _convertRoutePoints(routePoints),
             data: {'id': 'route_to_destination'},
             width: 6.0,
             color: Colors.blue,
           );
 
           // Only fit bounds if this is the initial route calculation
-          if (!_isTripActive) {
-            await _mapService.fitBounds(
-              [
-                latlong2.LatLng(
-                    currentPosition.latitude, currentPosition.longitude),
-                latlong2.LatLng(destination.latitude, destination.longitude)
-              ],
-              padding: 100.0,
-            );
+          if (!_isTripActive) {          await _mapService.fitBounds(
+            [
+              _toMapLibreLatLng(latlong2.LatLng(
+                  currentPosition.latitude, currentPosition.longitude)),
+              _toMapLibreLatLng(latlong2.LatLng(destination.latitude, destination.longitude))
+            ],
+            padding: 100.0,
+          );
           }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -245,7 +263,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         );
       }
     } catch (e) {
-      print('Error selecting destination: $e');
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not calculate route: $e'),
@@ -256,7 +274,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
   }
 
   /// Update route to a specific point using road-based routing
-  Future<void> _updateRouteToPoint(LatLng point) async {
+  Future<void> _updateRouteToPoint(maplibre.LatLng point) async {
     if (_currentPosition == null) return;
 
     try {
@@ -277,7 +295,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
         // Draw the new route with road-based path
         await _mapService.addRoute(
-          points: routePoints,
+          points: _convertRoutePoints(routePoints),
           data: {'id': 'route_to_destination'},
           width: 6.0,
           color: Colors.blue,
@@ -288,7 +306,9 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
         // Start ETA updates
         _etaUpdateTimer?.cancel();
-        _etaUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+        // Use real-time subscriptions instead of frequent polling
+        // Reduced timer frequency from 30 seconds to 2 minutes for fallback only
+        _etaUpdateTimer = Timer.periodic(const Duration(minutes: 2), (timer) {
           _updateDistanceAndETA();
         });
       } else {
@@ -301,7 +321,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         );
       }
     } catch (e) {
-      print('Error updating route: $e');
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not update route: $e'),
@@ -316,7 +336,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
   }
 
   /// Handle map click to set destination
-  Future<void> _handleMapClick(LatLng point) async {
+  Future<void> _handleMapClick(maplibre.LatLng point) async {
     if (_isTripActive)
       return; // Don't allow changing destination during active trip
 
@@ -471,6 +491,161 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
     await _updateDriverMarker();
   }
 
+  /// Start tracking driver's live location from database
+  void _startDriverLocationTracking() {
+    print('🚌 Starting driver location tracking for trip: ${widget.busId}');
+
+    _driverLocationSubscription = Supabase.instance.client
+        .from('driver_trip_locations')
+        .stream(primaryKey: ['id'])
+        .eq('trip_id', widget.busId)
+        .order('timestamp', ascending: false)
+        .limit(1)
+        .listen(
+          (List<Map<String, dynamic>> data) {
+            if (data.isNotEmpty && mounted) {
+              _updateDriverLocationFromDatabase(data.first);
+            }
+          },
+          onError: (error) {
+            print('❌ Driver location subscription error: $error');
+          },
+        );
+
+    // Also get initial driver location
+    _getInitialDriverLocation();
+  }
+
+  /// Get initial driver location from database
+  Future<void> _getInitialDriverLocation() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('driver_trip_locations')
+          .select('*')
+          .eq('trip_id', widget.busId)
+          .order('timestamp', ascending: false)
+          .limit(1);
+
+      if (response.isNotEmpty) {
+        _updateDriverLocationFromDatabase(response.first);
+      }
+    } catch (e) {
+      
+    }
+  }
+
+  /// Update driver location from database data
+  void _updateDriverLocationFromDatabase(Map<String, dynamic> locationData) {
+    try {
+      final latitude = locationData['latitude'] as double;
+      final longitude = locationData['longitude'] as double;
+      final heading = locationData['heading'] as double? ?? 0.0;
+      final speed = locationData['speed'] as double? ?? 0.0;
+      final timestamp = DateTime.parse(locationData['timestamp'] as String);
+
+      // Check if this is a recent location (within last 5 minutes)
+      final age = DateTime.now().difference(timestamp);
+      if (age.inMinutes < 5) {
+        setState(() {
+          _driverPosition = geo.Position(
+            latitude: latitude,
+            longitude: longitude,
+            timestamp: timestamp,
+            accuracy: locationData['accuracy'] as double? ?? 10.0,
+            altitude: 0.0,
+            heading: heading,
+            speed: speed / 3.6, // Convert km/h back to m/s
+            speedAccuracy: 0.0,
+            altitudeAccuracy: 0.0,
+            headingAccuracy: 0.0,
+          );
+        });
+
+        _updateDriverMarkerFromDatabase();
+        print('🚌 Updated driver location: $latitude, $longitude (${age.inSeconds}s ago)');
+      } else {
+        print('⚠️ Driver location is too old: ${age.inMinutes} minutes ago');
+      }
+    } catch (e) {
+      
+    }
+  }
+
+  /// Update driver marker on map from database location
+  Future<void> _updateDriverMarkerFromDatabase() async {
+    if (_driverPosition == null) return;
+
+    final driverPoint = latlong2.LatLng(_driverPosition!.latitude, _driverPosition!.longitude);
+
+    // Update marker position
+    await _mapService.updateMarker(
+      'driver',
+      _toMapLibreLatLng(driverPoint),
+      data: {
+        'id': 'driver',
+        'type': 'bus',
+        'heading': _driverPosition!.heading,
+      },
+    );
+
+    // If live tracking is active, update the route to driver's location
+    if (_isLiveTracking && _selectedDestination != null) {
+      await _updateRouteToDriverLocation();
+    }
+  }
+
+  /// Update route to driver's current location
+  Future<void> _updateRouteToDriverLocation() async {
+    if (_driverPosition == null || _currentPosition == null) return;
+
+    try {
+      // Calculate route from passenger's location to driver's location
+      final routePoints = await _tripService.calculateRoute(
+        latlong2.LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+        latlong2.LatLng(_driverPosition!.latitude, _driverPosition!.longitude),
+      );
+
+      if (routePoints.isNotEmpty) {
+        // Clear existing route
+        await _mapService.clearRoutes();
+
+        // Draw route to driver
+        await _mapService.addRoute(
+          points: _convertRoutePoints(routePoints),
+          data: {'id': 'route_to_driver'},
+          width: 6.0,
+          color: Colors.orange, // Orange route to indicate tracking driver
+        );
+
+        // Update distance and ETA to driver
+        _updateDistanceAndETAToDriver();
+      }
+    } catch (e) {
+      
+    }
+  }
+
+  /// Update distance and ETA to driver's location
+  void _updateDistanceAndETAToDriver() {
+    if (_driverPosition == null || _currentPosition == null) return;
+
+    // Calculate distance to driver
+    final distance = geo.Geolocator.distanceBetween(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      _driverPosition!.latitude,
+      _driverPosition!.longitude,
+    ) / 1000; // Convert to km
+
+    // Estimate ETA (assuming average travel speed)
+    final etaMinutes = (distance / 30 * 60).round(); // Assuming 30 km/h average speed
+
+    setState(() {
+      _estimatedDistance = 'To Driver: ${distance.toStringAsFixed(1)} km';
+      _estimatedTime = 'ETA: $etaMinutes min';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -519,15 +694,15 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
       ),
       body: Stack(
         children: [
-          MaplibreMap(
+          maplibre.MapLibreMap(
             styleString:
                 'https://api.maptiler.com/maps/streets/style.json?key=${dotenv.env['MAPTILER_API_KEY']}',
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(33.7756, -84.3963),
+            initialCameraPosition: const maplibre.CameraPosition(
+              target: maplibre.LatLng(33.7756, -84.3963),
               zoom: 15.0,
             ),
             myLocationEnabled: true,
-            myLocationTrackingMode: MyLocationTrackingMode.tracking,
+            myLocationTrackingMode: maplibre.MyLocationTrackingMode.tracking,
             onMapCreated: _initializeMap,
             onStyleLoadedCallback: () {
               if (_currentPosition != null) {
@@ -536,7 +711,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
             },
             onMapClick: (point, coordinates) {
               _handleMapClick(
-                  LatLng(coordinates.latitude, coordinates.longitude));
+                  maplibre.LatLng(coordinates.latitude, coordinates.longitude));
             },
             zoomGesturesEnabled: true,
             scrollGesturesEnabled: true,
@@ -635,7 +810,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
                           return ListTile(
                             title: Text(result['name']),
                             subtitle: Text(result['address'] ?? ''),
-                            onTap: () => _selectDestination(LatLng(
+                            onTap: () => _selectDestination(maplibre.LatLng(
                                 result['latitude'], result['longitude'])),
                           );
                         },
@@ -765,7 +940,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
 
         // Convert to MapLibre LatLng
         final mapLibreLatLng =
-            LatLng(destinationLatLng.latitude, destinationLatLng.longitude);
+            maplibre.LatLng(destinationLatLng.latitude, destinationLatLng.longitude);
 
         // Calculate route to the found location without moving the map
         await _handleMapClick(mapLibreLatLng);
@@ -788,7 +963,7 @@ class _BusTrackingScreenState extends State<BusTrackingScreen> {
         );
       }
     } catch (e) {
-      print('Error searching location: $e');
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error searching for location: $e')),
       );

@@ -651,7 +651,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       try {
         position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: const Duration(seconds: 2),
+          timeLimit: const Duration(seconds: 15), // Increased timeout for GPS
         );
       } catch (e) {
         position = await Geolocator.getLastKnownPosition();
@@ -1484,7 +1484,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
-        timeLimit: const Duration(seconds: 2),
+        timeLimit: const Duration(seconds: 15), // Increased timeout for GPS
       );
       
       if (mounted) {

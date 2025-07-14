@@ -59,6 +59,46 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
     _loadRouteData();
     _checkLocationPermission();
     _checkForExistingTrip();
+    _startStateSync();
+  }
+
+  /// Start periodic state synchronization with TripService
+  void _startStateSync() {
+    // Check immediately
+    _syncWithTripService();
+    
+    // Then check every 1 second for fast responsiveness
+    Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _syncWithTripService();
+    });
+  }
+  
+  /// Synchronize local state with TripService
+  void _syncWithTripService() {
+    final tripService = Provider.of<TripService>(context, listen: false);
+    final serviceHasTrip = tripService.currentTrip != null;
+    final localHasTrip = _isRideActive && _currentTrip != null;
+    
+    // If service says no trip but local state thinks there is, sync it
+    if (!serviceHasTrip && localHasTrip) {
+      print('🔄 Trip was stopped externally, syncing local state');
+      setState(() {
+        _isRideActive = false;
+        _currentTrip = null;
+      });
+    }
+    // If service has trip but local state doesn't know, sync it
+    else if (serviceHasTrip && !localHasTrip) {
+      print('🔄 Trip was started externally, syncing local state');
+      setState(() {
+        _isRideActive = true;
+        _currentTrip = tripService.currentTrip;
+      });
+    }
   }
 
   Future<void> _checkForExistingTrip() async {
@@ -112,24 +152,41 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
   void _startLiveLocationTracking() {
     final tripService = Provider.of<TripService>(context, listen: false);
     
-    // Listen to live location changes
+    // Listen to trip service changes for synchronization
     tripService.addListener(() {
-      if (mounted && _isRideActive && tripService.currentLocation != null) {
-        final currentLocation = tripService.currentLocation!;
+      if (mounted) {
+        // Synchronize local state with TripService state
+        final serviceHasTrip = tripService.currentTrip != null;
+        final localHasTrip = _isRideActive && _currentTrip != null;
         
-        // For this implementation, we'll use a fixed heading or 
-        // calculate it based on map view direction
-        // In a real app, you would get this from the GPS bearing
+        // If service says no trip but local state thinks there is, sync it
+        if (!serviceHasTrip && localHasTrip) {
+          print('Trip was stopped externally, syncing local state');
+          setState(() {
+            _isRideActive = false;
+            _currentTrip = null;
+          });
+          return;
+        }
         
-        // Update driver marker with current position and heading
-        _updateDriverMarker(currentLocation, _driverHeading);
-        
-        // Check if driver is off-route
-        _checkIfDriverOffRoute(currentLocation);
-        
-        // Center map if following driver
-        if (_followDriver) {
-          _centerMapOnDriver(currentLocation);
+        // Continue with location updates only if trip is truly active
+        if (_isRideActive && serviceHasTrip && tripService.currentLocation != null) {
+          final currentLocation = tripService.currentLocation!;
+          
+          // For this implementation, we'll use a fixed heading or 
+          // calculate it based on map view direction
+          // In a real app, you would get this from the GPS bearing
+          
+          // Update driver marker with current position and heading
+          _updateDriverMarker(currentLocation, _driverHeading);
+          
+          // Check if driver is off-route
+          _checkIfDriverOffRoute(currentLocation);
+          
+          // Center map if following driver
+          if (_followDriver) {
+            _centerMapOnDriver(currentLocation);
+          }
         }
       }
     });
@@ -791,6 +848,24 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
       setState(() => _isLoading = true);
 
       final tripService = Provider.of<TripService>(context, listen: false);
+      
+      // Check if trip still exists before trying to end it
+      if (tripService.currentTrip == null) {
+        print('Trip has already been stopped externally');
+        setState(() {
+          _isRideActive = false;
+          _currentTrip = null;
+          _isLoading = false;
+        });
+        _showSnackBar('Trip has already been ended');
+        
+        // Navigate back to driver dashboard
+        if (mounted) {
+          Navigator.pop(context);
+        }
+        return;
+      }
+      
       final success = await tripService.endDriverTrip();
 
       if (success) {
@@ -937,10 +1012,9 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
               ),
               
               // Driver direction arrow with off-route indicator
-              if (_isRideActive)
-                Consumer<TripService>(
-                  builder: (context, tripService, _) {
-                    if (tripService.currentLocation != null) {
+              Consumer<TripService>(
+                builder: (context, tripService, _) {
+                  if (tripService.currentLocation != null && tripService.currentTrip != null) {
                       // Check if map controller is ready for rendering
                       try {
                         // This is just to verify the camera is initialized properly
@@ -976,7 +1050,7 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
                   final allMarkers = <Marker>[
                     ..._markers,
                     // Current location marker if ride is active
-                    if (tripService.currentLocation != null && _isRideActive)
+                    if (tripService.currentLocation != null && tripService.currentTrip != null)
                       Marker(
                         point: tripService.currentLocation!,
                         width: 50,

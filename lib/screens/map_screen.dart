@@ -47,7 +47,7 @@ class _MapScreenState extends State<MapScreen> {
         final data = json.decode(response.body);
         final features = data['features'] as List;
         
-        print('OpenRouteService Geocode API Response Data: ${response.body}');
+        
         
         setState(() {
           _searchResults = features.map((feature) {
@@ -65,14 +65,14 @@ class _MapScreenState extends State<MapScreen> {
           }).toList();
         });
       } else {
-        print('OpenRouteService Geocode API Status Code: ${response.statusCode}');
-        print('OpenRouteService Geocode API Response Body: ${response.body}');
+        
+        
         setState(() {
           _searchResults = [];
         });
       }
     } catch (e) {
-      print('Error searching places: $e');
+      
       setState(() {
         _searchResults = [];
       });
@@ -119,7 +119,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   onTap: () {
                     // Handle location selection
-                    print('Selected location: ${result['name']}');
+                    
                   },
                 );
               },

@@ -135,16 +135,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        automaticallyImplyLeading: false, // Remove back button to prevent navigation conflicts
-      ),
-      body: Consumer<AuthService>(
-        builder: (context, authService, child) {
-          return SingleChildScrollView(
+    return Consumer<AuthService>(
+      builder: (context, authService, child) {
+        return SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,14 +407,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       }
                     },
                     type: ButtonType.outlined,
-                    prefixIcon: Icons.logout,
-                  ),
+                  prefixIcon: Icons.logout,
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

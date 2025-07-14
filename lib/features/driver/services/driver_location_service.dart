@@ -31,6 +31,7 @@ class DriverLocationService {
 
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 15), // Add proper timeout
       );
     } catch (e) {
       print('Error getting location: $e');

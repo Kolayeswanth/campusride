@@ -422,7 +422,7 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
-        timeLimit: const Duration(seconds: 10),
+        timeLimit: const Duration(seconds: 15),
       );
       
       if (mounted) {

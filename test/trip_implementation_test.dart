@@ -56,18 +56,18 @@ class _TripTestWidgetState extends State<TripTestWidget> {
       );
       
       if (trip != null) {
-        print('✅ Trip started successfully: ${trip.id}');
+        
         
         // Test ending the trip after a short delay
         await Future.delayed(Duration(seconds: 5));
         
         final success = await tripService.endDriverTrip();
         if (success) {
-          print('✅ Trip ended successfully');
+          
         }
       }
     } catch (e) {
-      print('❌ Trip test failed: $e');
+      
     }
   }
 
@@ -77,13 +77,13 @@ class _TripTestWidgetState extends State<TripTestWidget> {
     
     try {
       final trips = await tripService.getTripHistory();
-      print('✅ Trip history loaded: ${trips.length} trips found');
+      
       
       for (final trip in trips.take(3)) {
-        print('  - Trip ${trip.id}: ${trip.status} (${trip.busNumber})');
+        
       }
     } catch (e) {
-      print('❌ Trip history test failed: $e');
+      
     }
   }
 

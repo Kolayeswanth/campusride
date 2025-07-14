@@ -4,9 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:latlong2/latlong.dart' as latlong2;
 import 'offline_service.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'navigation_service.dart';
 
 const double kAutoFollowZoom = 17.0; // Consistent zoom level for auto-follow
@@ -20,16 +18,16 @@ class MapService extends ChangeNotifier {
   final List<Line> _lines = [];
   bool _isMapLoaded = false;
   bool _isFollowingUser = true;
-  latlong2.LatLng? _currentLocation;
+  LatLng? _currentLocation;
   bool _serviceEnabled = false;
   LocationPermission? _permissionGranted;
   String? _error;
   final _supabase = Supabase.instance.client;
   StreamSubscription? _locationSubscription;
   StreamSubscription? _busLocationSubscription; // Removed <Map<String, dynamic>>
-  Map<String, latlong2.LatLng> _busLocations = {}; // Use LatLng from latlong2
+  Map<String, LatLng> _busLocations = {}; // Use LatLng from MapLibre
   Map<String, StreamSubscription> _busSubscriptions = {};
-  latlong2.LatLng? _selectedLocation;
+  LatLng? _selectedLocation;
   double _zoom = 15.0;
   bool _isLoading = false;
   bool _isOfflineMode = false;
@@ -42,7 +40,7 @@ class MapService extends ChangeNotifier {
 
   /// Initial camera position
   CameraPosition get initialCameraPosition => CameraPosition(
-        target: _currentLocation?.toMaplibreLatLng() ?? const LatLng(33.7756, -84.3963),
+        target: _currentLocation ?? const LatLng(33.7756, -84.3963),
         zoom: _zoom,
       );
 
@@ -59,10 +57,10 @@ class MapService extends ChangeNotifier {
   }
 
   /// Current user location
-  latlong2.LatLng? get currentLocation => _currentLocation;
+  LatLng? get currentLocation => _currentLocation;
 
   /// Selected location on map
-  latlong2.LatLng? get selectedLocation => _selectedLocation;
+  LatLng? get selectedLocation => _selectedLocation;
 
   /// Current zoom level
   double get zoom => _zoom;
@@ -89,11 +87,12 @@ class MapService extends ChangeNotifier {
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15), // Add proper timeout
       );
-      _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+      _currentLocation = LatLng(position.latitude, position.longitude);
       if (_mapController != null) {
         await _mapController!.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentLocation!.toMaplibreLatLng(), _zoom), // Use extension method
+          CameraUpdate.newLatLngZoom(_currentLocation!, _zoom),
         );
       }
     } catch (e) {
@@ -106,16 +105,16 @@ class MapService extends ChangeNotifier {
 
   /// Update user location
   void updateUserLocation(Position position) {
-    _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+    _currentLocation = LatLng(position.latitude, position.longitude);
     updateUserLocationMarker(position);
     notifyListeners();
   }
 
   /// Move camera to a specific position
-  Future<void> moveCameraToPosition(latlong2.LatLng position) async {
+  Future<void> moveCameraToPosition(LatLng position) async {
     if (_mapController == null) return;
     await _mapController!.animateCamera(
-      CameraUpdate.newLatLngZoom(position.toMaplibreLatLng(), _zoom), // Use extension method
+      CameraUpdate.newLatLngZoom(position, _zoom),
     );
   }
 
@@ -129,21 +128,21 @@ class MapService extends ChangeNotifier {
   }
 
   /// Move map to location
-  Future<void> moveToLocation(latlong2.LatLng location, {double? zoom}) async {
+  Future<void> moveToLocation(LatLng location, {double? zoom}) async {
     if (_mapController == null) return;
     await _mapController!.animateCamera(
-      CameraUpdate.newLatLngZoom(location.toMaplibreLatLng(), zoom ?? _zoom), // Use extension method
+      CameraUpdate.newLatLngZoom(location, zoom ?? _zoom),
     );
   }
 
   /// Update current location
-  void updateCurrentLocation(latlong2.LatLng location) {
+  void updateCurrentLocation(LatLng location) {
     _currentLocation = location;
     notifyListeners();
   }
 
   /// Set selected location
-  void setSelectedLocation(latlong2.LatLng? location) {
+  void setSelectedLocation(LatLng? location) {
     _selectedLocation = location;
     notifyListeners();
   }
@@ -156,7 +155,7 @@ class MapService extends ChangeNotifier {
 
   /// Add a marker to the map
   Future<void> addMarker({
-    required latlong2.LatLng position,
+    required LatLng position,
     required Map<String, dynamic> data,
     String? title,
     Color? iconColor,
@@ -170,7 +169,7 @@ class MapService extends ChangeNotifier {
 
     final symbol = await _mapController!.addSymbol(
       SymbolOptions(
-        geometry: position.toMaplibreLatLng(),
+        geometry: position,
         iconImage: data['type'] == 'bus' ? 'bus-icon' : 'marker-icon',
         iconSize: data['type'] == 'bus' ? 1.5 : 1.0,
         iconRotate: data['heading']?.toDouble() ?? 0.0,
@@ -206,7 +205,7 @@ class MapService extends ChangeNotifier {
         await _mapController!.updateSymbol(
           existingUserMarker,
           SymbolOptions(
-            geometry: latlong2.LatLng(position.latitude, position.longitude).toMaplibreLatLng(),
+            geometry: LatLng(position.latitude, position.longitude),
             iconImage: 'user-location',
             iconSize: 1.0,
             iconRotate: position.heading,
@@ -217,7 +216,7 @@ class MapService extends ChangeNotifier {
         // Create a new marker if one doesn't exist
         final userMarker = await _mapController!.addSymbol(
           SymbolOptions(
-            geometry: latlong2.LatLng(position.latitude, position.longitude).toMaplibreLatLng(),
+            geometry: LatLng(position.latitude, position.longitude),
             iconImage: 'user-location',
             iconSize: 1.0,
             iconRotate: position.heading,
@@ -232,7 +231,7 @@ class MapService extends ChangeNotifier {
       if (_isFollowingUser) {
         await _mapController!.animateCamera(
           CameraUpdate.newLatLngZoom(
-            latlong2.LatLng(position.latitude, position.longitude).toMaplibreLatLng(),
+            LatLng(position.latitude, position.longitude),
             kAutoFollowZoom,
           ),
         );
@@ -249,7 +248,7 @@ class MapService extends ChangeNotifier {
   /// Update an existing marker
   Future<void> updateMarker(
     String markerId,
-    latlong2.LatLng position, {
+    LatLng position, {
     Map<String, dynamic>? data,
     double? heading,
   }) async {
@@ -270,7 +269,7 @@ class MapService extends ChangeNotifier {
     await _mapController!.updateSymbol(
       symbol,
       SymbolOptions(
-        geometry: position.toMaplibreLatLng(),
+        geometry: position,
         iconImage: updatedData['type'] == 'bus' ? 'bus-icon' : 'marker-icon',
         iconSize: updatedData['type'] == 'bus' ? 1.5 : 1.0,
         iconRotate: updatedData['heading']?.toDouble() ?? 0.0,
@@ -309,7 +308,7 @@ class MapService extends ChangeNotifier {
 
   /// Add a route to the map
   Future<void> addRoute({
-    required List<latlong2.LatLng> points,
+    required List<LatLng> points,
     required Map<String, dynamic> data,
     double width = 5.0,
     Color color = Colors.blue,
@@ -321,7 +320,7 @@ class MapService extends ChangeNotifier {
       await removeRouteById(routeId);
     }
 
-    final coordinates = points.map((point) => point.toMaplibreLatLng()).toList();
+    final coordinates = points.map((point) => point).toList();
 
     final line = await _mapController!.addLine(
       LineOptions(
@@ -366,7 +365,7 @@ class MapService extends ChangeNotifier {
   }
 
   /// Move camera to fit all points
-  Future<void> fitBounds(List<latlong2.LatLng> points, {double padding = 50.0}) async {
+  Future<void> fitBounds(List<LatLng> points, {double padding = 50.0}) async {
     if (_mapController == null || points.isEmpty) return;
     try {
       // Calculate bounds manually since fromLatLngs is not available
@@ -438,7 +437,7 @@ class MapService extends ChangeNotifier {
 
       // Get current location
       final position = await Geolocator.getCurrentPosition();
-      _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+      _currentLocation = LatLng(position.latitude, position.longitude);
       _error = null;
       notifyListeners();
       // Start listening to location changes
@@ -456,11 +455,11 @@ class MapService extends ChangeNotifier {
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 10, // Update every 10 meters instead of 5
-        timeLimit: Duration(seconds: 10), // Increased timeout
+        timeLimit: Duration(seconds: 15), // Increased timeout
       ),
     ).listen(
       (Position position) {
-      _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+      _currentLocation = LatLng(position.latitude, position.longitude);
         // Debounce marker updates to reduce UI work
         if (_lastMarkerUpdate == null || 
             DateTime.now().difference(_lastMarkerUpdate!) > const Duration(milliseconds: 500)) {
@@ -483,7 +482,7 @@ class MapService extends ChangeNotifier {
   }
 
   /// Get current location
-  Future<latlong2.LatLng> getCurrentLocation() async {
+  Future<LatLng> getCurrentLocation() async {
     try {
       // Handle web platform specifically to avoid Platform._operatingSystem error
       if (kIsWeb) {
@@ -493,7 +492,7 @@ class MapService extends ChangeNotifier {
           if (!serviceEnabled) {
             _error = 'Location services are disabled. Please enable them in your browser settings.';
             notifyListeners();
-            return const latlong2.LatLng(33.7756, -84.3963); // Default location
+            return const LatLng(33.7756, -84.3963); // Default location
           }
 
           // Check permission status for web
@@ -503,14 +502,14 @@ class MapService extends ChangeNotifier {
             if (permission == LocationPermission.denied) {
               _error = 'Location permission denied in browser';
               notifyListeners();
-              return const latlong2.LatLng(33.7756, -84.3963); // Default location
+              return const LatLng(33.7756, -84.3963); // Default location
             }
           }
 
           if (permission == LocationPermission.deniedForever) {
             _error = 'Location permissions are permanently denied in browser settings';
             notifyListeners();
-            return const latlong2.LatLng(33.7756, -84.3963); // Default location
+            return const LatLng(33.7756, -84.3963); // Default location
           }
 
           // Get current position for web with highest accuracy
@@ -519,14 +518,14 @@ class MapService extends ChangeNotifier {
             timeLimit: const Duration(seconds: 15),
             forceAndroidLocationManager: false, // Use Google Play Services when available
           );
-          _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+          _currentLocation = LatLng(position.latitude, position.longitude);
           _error = null;
           notifyListeners();
           return _currentLocation!;
         } catch (webError) {
           _error = 'Failed to get location in browser: $webError';
           notifyListeners();
-          return const latlong2.LatLng(33.7756, -84.3963); // Default location
+          return const LatLng(33.7756, -84.3963); // Default location
         }
       } else {
         // Mobile platform handling
@@ -535,7 +534,7 @@ class MapService extends ChangeNotifier {
         if (!serviceEnabled) {
           _error = 'Location services are disabled. Please enable them in your device settings.';
           notifyListeners();
-          return const latlong2.LatLng(33.7756, -84.3963); // Default location
+          return const LatLng(33.7756, -84.3963); // Default location
         }
 
         // Check permission status
@@ -545,14 +544,14 @@ class MapService extends ChangeNotifier {
           if (permission == LocationPermission.denied) {
             _error = 'Location permission denied';
             notifyListeners();
-            return const latlong2.LatLng(33.7756, -84.3963); // Default location
+            return const LatLng(33.7756, -84.3963); // Default location
           }
         }
 
         if (permission == LocationPermission.deniedForever) {
           _error = 'Location permissions are permanently denied, we cannot request permissions.';
           notifyListeners();
-          return const latlong2.LatLng(33.7756, -84.3963); // Default location
+          return const LatLng(33.7756, -84.3963); // Default location
         }
 
         // Get current position with highest accuracy for navigation
@@ -563,7 +562,7 @@ class MapService extends ChangeNotifier {
         );
         
         // Update current location
-        _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+        _currentLocation = LatLng(position.latitude, position.longitude);
         _error = null;
         notifyListeners();
         return _currentLocation!;
@@ -572,14 +571,14 @@ class MapService extends ChangeNotifier {
       _error = 'Failed to get current location: $e';
       notifyListeners();
       // Return a default location
-      return const latlong2.LatLng(33.7756, -84.3963); // Default location (can be customized)
+      return const LatLng(33.7756, -84.3963); // Default location (can be customized)
     }
   }
 
   /// Update user location on map
   Future<void> updateUserLocationOnMap(Position position) async {
     if (position.accuracy <= 20) { // Only update if accuracy is within 20 meters
-      _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
+      _currentLocation = LatLng(position.latitude, position.longitude);
       
       // Check if marker exists
       bool markerExists = _markerIds.contains('user_location');
@@ -623,11 +622,11 @@ class MapService extends ChangeNotifier {
         final lng = location['longitude'] as double;
         final accuracy = location['accuracy'] as double? ?? 0.0;
         if (accuracy <= 20) { // Only update if accuracy is within 20 meters
-          _busLocations[busId] = latlong2.LatLng(lat, lng);
+          _busLocations[busId] = LatLng(lat, lng);
           // Update marker
           await removeMarkerById('bus_$busId');
           await addMarker(
-            position: latlong2.LatLng(lat, lng),
+            position: LatLng(lat, lng),
             data: {'id': 'bus_$busId'},
             title: 'Bus $busId',
             iconColor: Colors.green,
@@ -700,7 +699,29 @@ class MapService extends ChangeNotifier {
     if (_isOfflineMode) {
       return 'asset://assets/offline_map.json';
     } else {
-      return 'https://api.maptiler.com/maps/streets/style.json?key=${dotenv.env['MAPTILER_API_KEY']}';
+      return '''
+      {
+        "version": 8,
+        "sources": {
+          "ola-raster": {
+            "type": "raster",
+            "tiles": [
+              "https://api.olamaps.io/tiles/raster/v1/styles/default/{z}/{x}/{y}?api_key=u8bxvlb9ubgP2wKgJyxEY2ya1hYNcvyxFDCpA85y"
+            ],
+            "tileSize": 256,
+            "maxzoom": 19,
+            "attribution": "© Ola Maps"
+          }
+        },
+        "layers": [
+          {
+            "id": "ola-raster-layer",
+            "type": "raster",
+            "source": "ola-raster"
+          }
+        ]
+      }
+      ''';
     }
   }
 
@@ -738,15 +759,15 @@ class MapService extends ChangeNotifier {
     }
   }
 
-  Future<void> updateNavigationFeatures(latlong2.LatLng currentLocation) async {
+  Future<void> updateNavigationFeatures(LatLng currentLocation) async {
     if (_mapController == null || _navigationService == null) return;
 
-    const double searchRadius = 1000.0; // 1km radius for navigation features
-    // Fetch navigation data for the current area
-    await _navigationService?.fetchTrafficData(currentLocation, searchRadius);
-    await _navigationService?.fetchRoadWorkAlerts(currentLocation, searchRadius);
-    await _navigationService?.fetchSpeedCameras(currentLocation, searchRadius);
-    await _navigationService?.fetchSchoolZones(currentLocation, searchRadius);
+    // TODO: Convert navigation service to use MapLibre LatLng
+    // const double searchRadius = 1000.0; // 1km radius for navigation features
+    // await _navigationService?.fetchTrafficData(currentLocation, searchRadius);
+    // await _navigationService?.fetchRoadWorkAlerts(currentLocation, searchRadius);
+    // await _navigationService?.fetchSpeedCameras(currentLocation, searchRadius);
+    // await _navigationService?.fetchSchoolZones(currentLocation, searchRadius);
 
     // Update the map with the new navigation features
     notifyListeners();
@@ -763,9 +784,4 @@ class MapService extends ChangeNotifier {
   }
 }
 
-/// Extension method to convert latlong2.LatLng to Maplibre's LatLng
-extension LatLngConverter on latlong2.LatLng {
-  LatLng toMaplibreLatLng() {
-    return LatLng(latitude, longitude);
-  }
-}
+

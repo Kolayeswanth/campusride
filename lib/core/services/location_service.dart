@@ -141,7 +141,10 @@ class LocationService extends ChangeNotifier {
         throw Exception('Location permissions are permanently denied');
       }
       
-      final position = await Geolocator.getCurrentPosition();
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15), // Add proper timeout
+      );
       _currentPosition = position;
       return position;
     } catch (e) {

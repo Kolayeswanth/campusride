@@ -160,6 +160,9 @@ class TripService with ChangeNotifier {
   String? _villageNotificationMessage;
   Timer? _notificationTimer;
   final Set<String> _crossedVillages = {}; // Track crossed villages to prevent duplicates
+  
+  // Real-time subscription for trip updates
+  StreamSubscription? _tripUpdatesSubscription;
 
   // List to store trip history
   final List<dynamic> _tripHistory = [];
@@ -175,6 +178,66 @@ class TripService with ChangeNotifier {
   bool _routesLoaded = false;
   String? _lastCollegeId;
   DateTime? _lastRoutesFetchTime;
+  
+  // Constructor to set up real-time listeners
+  TripService() {
+    _setupTripUpdatesListener();
+  }
+  
+  /// Set up real-time listener for trip updates
+  void _setupTripUpdatesListener() {
+    _tripUpdatesSubscription = _supabase
+        .from('driver_trips')
+        .stream(primaryKey: ['id'])
+        .eq('status', 'completed')
+        .listen((data) {
+          _handleTripUpdate(data);
+        });
+  }
+  
+  /// Handle real-time trip updates
+  void _handleTripUpdate(List<Map<String, dynamic>> updates) {
+    final currentUser = _supabase.auth.currentUser;
+    if (currentUser == null || _currentTrip == null) return;
+    
+    for (final update in updates) {
+      final tripId = update['id'] as String?;
+      final driverId = update['driver_id'] as String?;
+      final status = update['status'] as String?;
+      
+      // If current user's trip was completed externally
+      if (tripId == _currentTrip!.id && 
+          driverId == currentUser.id && 
+          status == 'completed') {
+        
+        _handleExternalTripStop();
+        break;
+      }
+    }
+  }
+  
+  /// Handle when trip is stopped externally (e.g., by admin)
+  Future<void> _handleExternalTripStop() async {
+    try {
+      
+      
+      // Stop location sharing
+      await _stopLiveLocationSharing();
+      
+      // Clear local state
+      _currentTrip = null;
+      _currentTripPolyline.clear();
+      _plannedRoutePolyline.clear();
+      _isLiveLocationSharing = false;
+      
+      // Notify listeners
+      notifyListeners();
+      
+      
+    } catch (e) {
+      
+    }
+  }
   
   List<BusRoute> get routes => _routes;
   BusRoute? get selectedRoute => _selectedRoute;
@@ -333,7 +396,7 @@ class TripService with ChangeNotifier {
         }
       }
     } catch (e) {
-      print('Error checking for crossed village: $e');
+      
     }
   }
   
@@ -421,7 +484,7 @@ class TripService with ChangeNotifier {
         
         return routePoints;
       } else {
-        print('Failed to calculate route: ${response.statusCode} - ${response.body}');
+        
         return _addIntermediatePoints(start, end);
       }
     } catch (e) {
@@ -553,7 +616,7 @@ class TripService with ChangeNotifier {
         'longitude': _currentLocation!.longitude,
       });
     } catch (e) {
-      print('Failed to store crossed village: $e');
+      
     }
   }
 
@@ -581,7 +644,7 @@ class TripService with ChangeNotifier {
       
       return null;
     } catch (e) {
-      print('Error getting village name: $e');
+      
       return null;
     }
   }
@@ -604,7 +667,7 @@ class TripService with ChangeNotifier {
         };
       }).toList();
     } catch (e) {
-      print('Failed to get crossed villages: $e');
+      
       return [];
     }
   }
@@ -614,7 +677,7 @@ class TripService with ChangeNotifier {
     try {
       return await _geocodingService.getVillageCenter(villageName);
     } catch (e) {
-      print('Error getting village center: $e');
+      
       return null;
     }
   }
@@ -630,7 +693,7 @@ class TripService with ChangeNotifier {
         'longitude': _currentLocation!.longitude,
       });
     } catch (e) {
-      print('Failed to store crossed village: $e');
+      
     }
   }
 
@@ -638,6 +701,7 @@ class TripService with ChangeNotifier {
   void dispose() {
     _crossedVillages.clear();
     _notificationTimer?.cancel();
+    _tripUpdatesSubscription?.cancel();
     super.dispose();
   }
 
@@ -678,20 +742,20 @@ class TripService with ChangeNotifier {
         // If current driver has an active trip on this route, check if we need to resume it
         if (routesInUseByCurrentDriver.contains(route.id) && _currentTrip == null) {
           // Driver has an active trip but it's not loaded in memory
-          print('Found unloaded active trip on route: ${route.id}');
+          
         }
       }
 
       if (routesInUseByOthers.isNotEmpty) {
-        print('Route status: ${allRoutes.length} total, ${routesInUseByOthers.length} in use by others');
+        
       }
       if (routesInUseByCurrentDriver.isNotEmpty) {
-        print('Current driver has active trips on ${routesInUseByCurrentDriver.length} routes');
+        
       }
       return allRoutes;
       
     } catch (e) {
-      print('Error checking route usage: $e');
+      
       // If checking fails, return all routes as available to avoid blocking the driver
       for (final route in allRoutes) {
         route.isInUseByOther = false;
@@ -711,8 +775,8 @@ class TripService with ChangeNotifier {
       // Check if we have cached routes and don't need to refresh
       if (!forceRefresh && !shouldRefreshRoutes() && _routes.isNotEmpty) {
         // Only refresh route usage status, not the entire route list
-        await _refreshRouteUsageStatus();
-        print('Using cached routes: ${_routes.length} routes');
+        _refreshRouteUsageStatusFromRealtime();
+        
         notifyListeners();
         return _routes;
       }
@@ -735,7 +799,7 @@ class TripService with ChangeNotifier {
       List<BusRoute> allRoutes = [];
 
       if (currentCollegeId == null) {
-        print('No college found, fetching all routes');
+        
         final response = await _supabase.from('routes').select('*').order('name');
         allRoutes = response.map((e) => BusRoute.fromJson(e)).toList();
       } else {
@@ -758,14 +822,14 @@ class TripService with ChangeNotifier {
                 .order('name');
             
             allRoutes = response.map((e) => BusRoute.fromJson(e)).toList();
-            print('Fetched ${allRoutes.length} routes for college: $collegeCode');
+            
           } else {
-            print('College code not found, fetching all routes');
+            
             final response = await _supabase.from('routes').select('*').order('name');
             allRoutes = response.map((e) => BusRoute.fromJson(e)).toList();
           }
         } catch (e) {
-          print('Error with college lookup: $e');
+          
           final response = await _supabase.from('routes').select('*').order('name');
           allRoutes = response.map((e) => BusRoute.fromJson(e)).toList();
         }
@@ -776,34 +840,36 @@ class TripService with ChangeNotifier {
       _routesLoaded = true;
       _lastRoutesFetchTime = DateTime.now();
       
-      print('Loaded ${_routes.length} routes for driver');
+      
       notifyListeners();
       return _routes;
     } catch (e) {
       _error = 'Failed to fetch driver routes: $e';
-      print('Error fetching driver routes: $e');
+      
       notifyListeners();
       return [];
     }
   }
 
-  /// Refresh only the route usage status without refetching all route data
-  Future<void> _refreshRouteUsageStatus() async {
+  /// Refresh route usage status using real-time data (no database polling)
+  void _refreshRouteUsageStatusFromRealtime() {
     if (_routes.isEmpty) return;
     
     try {
       final currentUser = _supabase.auth.currentUser;
       if (currentUser == null) return;
 
-      // Get all active trips
-      final activeTripsResponse = await _supabase
-          .from('driver_trips')
-          .select('route_id, driver_id')
-          .eq('status', 'active');
+      // Get real-time data from RealtimeService instead of database polling
+      final realtimeService = _getRealtimeService();
+      if (realtimeService == null) {
+        
+        return;
+      }
 
-      final Set<String> routesInUseByOthers = {};
+      final routesInUseByOthers = <String>{};
       
-      for (final trip in activeTripsResponse) {
+      // Use cached real-time data instead of database query
+      for (final trip in realtimeService.activeTrips.values) {
         final routeId = trip['route_id'] as String?;
         final driverId = trip['driver_id'] as String?;
         
@@ -819,11 +885,18 @@ class TripService with ChangeNotifier {
       }
 
       if (routesInUseByOthers.isNotEmpty) {
-        print('Updated route usage: ${routesInUseByOthers.length} routes in use by others');
+        
       }
     } catch (e) {
-      print('Error refreshing route usage status: $e');
+      
     }
+  }
+
+  /// Get RealtimeService instance (implement this based on your dependency injection)
+  dynamic _getRealtimeService() {
+    // You'll need to inject this service or access it through your service locator
+    // This is a placeholder - implement based on your architecture
+    return null;
   }
 
   // Driver trip management
@@ -845,12 +918,12 @@ class TripService with ChangeNotifier {
     
     if (uuidRegex.hasMatch(routeId)) {
       // Already a valid UUID
-      print('Route ID is valid UUID: $routeId');
+      
       return routeId;
     }
     
     // If it's an invalid string ID, allow it for now but log a warning
-    print('Warning: Route ID is not a UUID format: $routeId. Allowing for backward compatibility.');
+    
     return routeId;
   }
 
@@ -872,7 +945,7 @@ class TripService with ChangeNotifier {
       final activeTrip = response.first;
       return activeTrip['driver_id'] != currentUser.id;
     } catch (e) {
-      print('Error checking route usage: $e');
+      
       return false; // If check fails, allow the trip to proceed
     }
   }
@@ -884,10 +957,10 @@ class TripService with ChangeNotifier {
     required BusRoute route,
   }) async {
     try {
-      print('Starting driver trip with routeId: $routeId');
-      print('RouteId type: ${routeId.runtimeType}');
-      print('RouteId length: ${routeId.length}');
-      print('Route object ID: ${route.id}');
+      
+      
+      
+      
       
       final currentUser = _supabase.auth.currentUser;
       if (currentUser == null) {
@@ -897,7 +970,7 @@ class TripService with ChangeNotifier {
       // First check if this driver already has an active trip on this route
       final existingTrip = await getDriverActiveTrip(routeId);
       if (existingTrip != null) {
-        print('Driver already has an active trip on this route: ${existingTrip.id}');
+        
         // Resume the existing trip instead of creating a new one
         final resumed = await resumeActiveTrip(existingTrip, route);
         if (resumed) {
@@ -913,8 +986,11 @@ class TripService with ChangeNotifier {
         throw Exception('This route is currently being used by another driver. Please select a different route.');
       }
 
-      // Get current location
-      final position = await Geolocator.getCurrentPosition();
+      // Get current location with proper timeout
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 15), // Proper timeout for GPS
+      );
       final startLocation = {
         'latitude': position.latitude,
         'longitude': position.longitude,
@@ -943,12 +1019,12 @@ class TripService with ChangeNotifier {
       // Start live location sharing
       await _startLiveLocationSharing();
       
-      print('Driver trip started successfully: ${_currentTrip?.id}');
+      
       notifyListeners();
       return _currentTrip;
     } catch (e) {
       _error = 'Failed to start trip: $e';
-      print('Error starting driver trip: $e');
+      
       notifyListeners();
       return null;
     }
@@ -959,7 +1035,10 @@ class TripService with ChangeNotifier {
     if (_currentTrip == null) return false;
 
     try {
-      final position = await Geolocator.getCurrentPosition();
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 15), // Proper timeout for GPS
+      );
       final endLocation = {
         'latitude': position.latitude,
         'longitude': position.longitude,
@@ -995,7 +1074,7 @@ class TripService with ChangeNotifier {
       return true;
     } catch (e) {
       _error = 'Failed to end trip: $e';
-      print('Error ending driver trip: $e');
+      
       notifyListeners();
       return false;
     }
@@ -1004,7 +1083,7 @@ class TripService with ChangeNotifier {
   /// Start sharing live location
   Future<void> _startLiveLocationSharing() async {
     if (_isLiveLocationSharing) {
-      print('Live location sharing already active');
+      
       return;
     }
 
@@ -1024,7 +1103,7 @@ class TripService with ChangeNotifier {
 
       _isLiveLocationSharing = true;
       _currentTripPolyline.clear();
-      print('Starting live location sharing for trip: ${_currentTrip?.id}');
+      
       
       // Start location tracking with more frequent updates for live sharing
       _positionSubscription?.cancel();
@@ -1051,7 +1130,7 @@ class TripService with ChangeNotifier {
           }
         },
         onError: (error) {
-          print('Error in position stream: $error');
+          
           _error = 'Error tracking location: $error';
           notifyListeners();
         },
@@ -1060,7 +1139,7 @@ class TripService with ChangeNotifier {
     } catch (e) {
       _isLiveLocationSharing = false;
       _error = 'Failed to start live location sharing: $e';
-      print('Error starting live location sharing: $e');
+      
       notifyListeners();
       throw e;
     }
@@ -1069,22 +1148,22 @@ class TripService with ChangeNotifier {
   /// Stop sharing live location
   Future<void> _stopLiveLocationSharing() async {
     if (!_isLiveLocationSharing) {
-      print('Live location sharing not active');
+      
       return;
     }
 
     try {
-      print('Stopping live location sharing for trip: ${_currentTrip?.id}');
+      
       
       _isLiveLocationSharing = false;
       await _positionSubscription?.cancel();
       _positionSubscription = null;
       _currentLocation = null;
       
-      print('Live location sharing stopped successfully');
+      
       notifyListeners();
     } catch (e) {
-      print('Error stopping live location sharing: $e');
+      
       _error = 'Error stopping live location sharing: $e';
       notifyListeners();
     }
@@ -1095,6 +1174,8 @@ class TripService with ChangeNotifier {
     if (_currentTrip == null) return;
 
     try {
+      
+      
       await _supabase.from('driver_trip_locations').insert({
         'trip_id': _currentTrip!.id,
         'latitude': position.latitude,
@@ -1104,8 +1185,10 @@ class TripService with ChangeNotifier {
         'accuracy': position.accuracy,
         'timestamp': DateTime.now().toIso8601String(),
       });
+      
+      
     } catch (e) {
-      print('Error storing trip location: $e');
+      
     }
   }
 
@@ -1163,7 +1246,7 @@ class TripService with ChangeNotifier {
         });
       }
     } catch (e) {
-      print('Error handling route deviation: $e');
+      
     }
   }
 
@@ -1182,7 +1265,7 @@ class TripService with ChangeNotifier {
         'is_deviation': false,
       });
     } catch (e) {
-      print('Error storing trip polyline: $e');
+      
     }
   }
 
@@ -1218,7 +1301,7 @@ class TripService with ChangeNotifier {
       _driverTripHistory = response.map((e) => DriverTrip.fromJson(e)).toList();
       notifyListeners();
     } catch (e) {
-      print('Error fetching trip history: $e');
+      
     }
   }
 
@@ -1248,7 +1331,7 @@ class TripService with ChangeNotifier {
         'locations': locationsResponse,
       };
     } catch (e) {
-      print('Error fetching trip details: $e');
+      
       return null;
     }
   }
@@ -1264,7 +1347,7 @@ class TripService with ChangeNotifier {
     try {
       return _routes.firstWhere((route) => route.id == routeId);
     } catch (e) {
-      print('Route with ID $routeId not found in cached routes');
+      
       return null;
     }
   }
@@ -1281,7 +1364,7 @@ class TripService with ChangeNotifier {
     _routesLoaded = false;
     _lastCollegeId = null;
     _lastRoutesFetchTime = null;
-    print('Route cache cleared');
+    
   }
 
   /// Check if routes need to be refreshed due to user change or cache expiration
@@ -1297,7 +1380,7 @@ class TripService with ChangeNotifier {
     if (_lastRoutesFetchTime != null) {
       final cacheAge = DateTime.now().difference(_lastRoutesFetchTime!);
       if (cacheAge.inMinutes > 5) {
-        print('Route cache expired after ${cacheAge.inMinutes} minutes');
+        
         return true;
       }
     }
@@ -1368,7 +1451,7 @@ class TripService with ChangeNotifier {
               };
             }
           } catch (e) {
-            print('Could not get last location for trip $tripId: $e');
+            
             // Continue with default location
           }
 
@@ -1378,7 +1461,6 @@ class TripService with ChangeNotifier {
             'end_time': endTime.toIso8601String(),
             'status': 'completed',
             'actual_duration_minutes': duration,
-            'notes': 'Trip ended by system - $reason',
           }).eq('id', tripId);
 
           // Add to stopped trips list
@@ -1392,12 +1474,12 @@ class TripService with ChangeNotifier {
           });
 
           successCount++;
-          print('Successfully stopped trip: $tripId');
+          
 
         } catch (e) {
           errorCount++;
           errors.add('Failed to stop trip ${trip['id']}: $e');
-          print('Error stopping trip ${trip['id']}: $e');
+          
         }
       }
 
@@ -1431,7 +1513,7 @@ class TripService with ChangeNotifier {
       };
 
     } catch (e) {
-      print('Error stopping all ongoing rides: $e');
+      
       return {
         'success': false,
         'message': 'Failed to stop ongoing rides: $e',
@@ -1480,7 +1562,7 @@ class TripService with ChangeNotifier {
         'trip_details': tripDetails,
       };
     } catch (e) {
-      print('Error getting ongoing rides stats: $e');
+      
       return {
         'total_active_trips': 0,
         'unique_drivers': 0,
@@ -1540,7 +1622,7 @@ class TripService with ChangeNotifier {
           };
         }
       } catch (e) {
-        print('Could not get last location for trip $tripId: $e');
+        
       }
 
       // Update trip status
@@ -1549,7 +1631,6 @@ class TripService with ChangeNotifier {
         'end_time': endTime.toIso8601String(),
         'status': 'completed',
         'actual_duration_minutes': duration,
-        'notes': 'Trip ended by admin - $reason',
       }).eq('id', tripId);
 
       // If this is the current user's trip, update local state
@@ -1577,7 +1658,7 @@ class TripService with ChangeNotifier {
       };
 
     } catch (e) {
-      print('Error stopping specific trip: $e');
+      
       return {
         'success': false,
         'message': 'Failed to stop trip: $e',
@@ -1600,13 +1681,13 @@ class TripService with ChangeNotifier {
 
       if (response != null) {
         final trip = DriverTrip.fromJson(response);
-        print('Found existing active trip: ${trip.id} on route: ${trip.routeId}');
+        
         return trip;
       }
       
       return null;
     } catch (e) {
-      print('Error checking for current driver active trip: $e');
+      
       return null;
     }
   }
@@ -1614,7 +1695,7 @@ class TripService with ChangeNotifier {
   /// Resume an existing active trip (when driver comes back to the app)
   Future<bool> resumeActiveTrip(DriverTrip trip, BusRoute route) async {
     try {
-      print('Resuming active trip: ${trip.id}');
+      
       
       // Set the current trip
       _currentTrip = trip;
@@ -1629,11 +1710,11 @@ class TripService with ChangeNotifier {
         await _startLiveLocationSharing();
       }
       
-      print('Successfully resumed trip: ${trip.id}');
+      
       notifyListeners();
       return true;
     } catch (e) {
-      print('Error resuming active trip: $e');
+      
       _error = 'Failed to resume trip: $e';
       notifyListeners();
       return false;
@@ -1660,7 +1741,7 @@ class TripService with ChangeNotifier {
       
       return null;
     } catch (e) {
-      print('Error checking for driver active trip on route: $e');
+      
       return null;
     }
   }
@@ -1672,7 +1753,7 @@ class TripService with ChangeNotifier {
       final activeTrip = await getCurrentDriverActiveTrip();
       
       if (activeTrip != null) {
-        print('Driver has an active trip: ${activeTrip.id}');
+        
         
         // Try to get the route for this trip
         final route = getRouteById(activeTrip.routeId);
@@ -1680,15 +1761,15 @@ class TripService with ChangeNotifier {
           // Resume the active trip
           await resumeActiveTrip(activeTrip, route);
         } else {
-          print('Route not found for active trip, will load routes first');
+          
           // Store the active trip info to resume after routes are loaded
           _currentTrip = activeTrip;
         }
       } else {
-        print('No active trip found for current driver');
+        
       }
     } catch (e) {
-      print('Error initializing trip service: $e');
+      
     }
   }
 
@@ -1771,7 +1852,7 @@ class TripService with ChangeNotifier {
         'action': 'start_new',
       };
     } catch (e) {
-      print('Error checking if can start trip: $e');
+      
       return {
         'canStart': false,
         'reason': 'Error checking route availability: $e',
