@@ -51,8 +51,8 @@ CREATE TABLE public.driver_requests (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT driver_requests_pkey PRIMARY KEY (id),
-  CONSTRAINT driver_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT driver_requests_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id)
+  CONSTRAINT driver_requests_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id),
+  CONSTRAINT driver_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
 CREATE TABLE public.driver_trip_locations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -109,8 +109,17 @@ CREATE TABLE public.drivers (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT drivers_pkey PRIMARY KEY (id),
-  CONSTRAINT drivers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT drivers_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id)
+  CONSTRAINT drivers_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id),
+  CONSTRAINT drivers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.favorite_routes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  route_id text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT favorite_routes_pkey PRIMARY KEY (id),
+  CONSTRAINT favorite_routes_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT favorite_routes_route_id_fkey FOREIGN KEY (route_id) REFERENCES public.routes(id)
 );
 CREATE TABLE public.profiles (
   id uuid NOT NULL,
@@ -121,6 +130,7 @@ CREATE TABLE public.profiles (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   college_id uuid,
+  phone text,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id),
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
