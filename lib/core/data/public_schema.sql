@@ -51,8 +51,8 @@ CREATE TABLE public.driver_requests (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT driver_requests_pkey PRIMARY KEY (id),
-  CONSTRAINT driver_requests_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id),
-  CONSTRAINT driver_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+  CONSTRAINT driver_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT driver_requests_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id)
 );
 CREATE TABLE public.driver_trip_locations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -93,6 +93,7 @@ CREATE TABLE public.driver_trips (
   actual_duration_minutes integer,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  notes text,
   CONSTRAINT driver_trips_pkey PRIMARY KEY (id),
   CONSTRAINT driver_trips_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES auth.users(id)
 );
@@ -132,8 +133,7 @@ CREATE TABLE public.profiles (
   college_id uuid,
   phone text,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT profiles_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id),
-  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+  CONSTRAINT profiles_college_id_fkey FOREIGN KEY (college_id) REFERENCES public.colleges(id)
 );
 CREATE TABLE public.routes (
   id text NOT NULL,
