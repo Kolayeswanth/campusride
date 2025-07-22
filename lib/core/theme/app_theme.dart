@@ -100,7 +100,7 @@ class AppTheme {
       ),
 
       // Card Theme
-      cardTheme: const CardTheme(
+      cardTheme: const CardThemeData(
         elevation: 1,
         margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       ),

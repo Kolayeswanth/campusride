@@ -4,9 +4,12 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import '../../../core/services/realtime_service.dart';
 import '../../../core/services/ola_location_service.dart';
+import '../../../core/services/ola_maps_service.dart';
+import '../../../core/services/trip_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/bus_info.dart';
 import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LiveBusTrackingScreen extends StatefulWidget {
   final BusInfo busInfo;
@@ -24,6 +27,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   MaplibreMapController? _mapController;
   StreamSubscription? _locationSubscription;
   Timer? _updateTimer;
+  final OlaMapsService _olaMapsService = OlaMapsService();
   
   latlong2.LatLng? _currentUserLocation;
   latlong2.LatLng? _currentBusLocation;
@@ -31,6 +35,10 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   bool _isFollowingBus = true;
   String? _estimatedArrival;
   double? _distanceToUser;
+  
+  // Route information
+  BusRoute? _routeInfo;
+  bool _isLoadingRoute = true;
   
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -50,6 +58,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
       );
     }
     
+    _loadRouteInformation();
     _initializeTracking();
   }
 
@@ -66,6 +75,35 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
       curve: Curves.easeInOut,
     ));
     _pulseController.repeat(reverse: true);
+  }
+
+  Future<void> _loadRouteInformation() async {
+    try {
+      if (widget.busInfo.routeId != null) {
+        final response = await Supabase.instance.client
+            .from('routes')
+            .select()
+            .eq('id', widget.busInfo.routeId!)
+            .single();
+        
+        setState(() {
+          _routeInfo = BusRoute.fromJson(response);
+          _isLoadingRoute = false;
+        });
+        
+        print('Route loaded: ${_routeInfo?.name} from ${_routeInfo?.startLocationName} to ${_routeInfo?.endLocationName}');
+      } else {
+        setState(() {
+          _isLoadingRoute = false;
+        });
+        print('No route ID available for this bus');
+      }
+    } catch (e) {
+      print('Error loading route information: $e');
+      setState(() {
+        _isLoadingRoute = false;
+      });
+    }
   }
 
   Future<void> _initializeTracking() async {
@@ -184,24 +222,6 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
     }
   }
 
-  String _calculateETA(double distanceInMeters) {
-    // Assume average bus speed of 25 km/h in city traffic
-    final speedKmH = 25.0;
-    final distanceKm = distanceInMeters / 1000;
-    final timeHours = distanceKm / speedKmH;
-    final timeMinutes = (timeHours * 60).round();
-    
-    if (timeMinutes < 1) {
-      return 'Arriving now';
-    } else if (timeMinutes < 60) {
-      return '$timeMinutes min';
-    } else {
-      final hours = timeMinutes ~/ 60;
-      final mins = timeMinutes % 60;
-      return '${hours}h ${mins}m';
-    }
-  }
-
   void _centerMapOnBus() {
     if (_mapController != null && _currentBusLocation != null) {
       _mapController!.animateCamera(
@@ -229,14 +249,19 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
         _currentUserLocation != null && 
         _currentBusLocation != null) {
       
+      final userLat = _currentUserLocation!.latitude;
+      final userLng = _currentUserLocation!.longitude;
+      final busLat = _currentBusLocation!.latitude;
+      final busLng = _currentBusLocation!.longitude;
+      
       final bounds = LatLngBounds(
         southwest: LatLng(
-          [_currentUserLocation!.latitude, _currentBusLocation!.latitude].reduce((a, b) => a < b ? a : b),
-          [_currentUserLocation!.longitude, _currentBusLocation!.longitude].reduce((a, b) => a < b ? a : b),
+          userLat < busLat ? userLat : busLat,
+          userLng < busLng ? userLng : busLng,
         ),
         northeast: LatLng(
-          [_currentUserLocation!.latitude, _currentBusLocation!.latitude].reduce((a, b) => a > b ? a : b),
-          [_currentUserLocation!.longitude, _currentBusLocation!.longitude].reduce((a, b) => a > b ? a : b),
+          userLat > busLat ? userLat : busLat,
+          userLng > busLng ? userLng : busLng,
         ),
       );
       
@@ -300,14 +325,16 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   }
 
   Widget _buildMap() {
-    if (_isLoadingLocation) {
+    if (_isLoadingLocation || _isLoadingRoute) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Getting your location...'),
+            Text(_isLoadingLocation 
+              ? 'Getting your location...' 
+              : 'Loading route information...'),
           ],
         ),
       );
@@ -318,21 +345,20 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
       {
         "version": 8,
         "sources": {
-          "ola-raster": {
+          "maplibre": {
             "type": "raster",
             "tiles": [
-              "https://api.olamaps.io/tiles/raster/v1/styles/default/{z}/{x}/{y}?api_key=u8bxvlb9ubgP2wKgJyxEY2ya1hYNcvyxFDCpA85y"
+              "https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=m37d3xPYmQx85rLtCyoW"
             ],
             "tileSize": 256,
-            "maxzoom": 19,
-            "attribution": "© Ola Maps"
+            "attribution": "© MapTiler © OpenStreetMap contributors"
           }
         },
         "layers": [
           {
-            "id": "ola-raster-layer",
+            "id": "maplibre-layer",
             "type": "raster",
-            "source": "ola-raster"
+            "source": "maplibre"
           }
         ]
       }
@@ -340,6 +366,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
       onMapCreated: (controller) {
         _mapController = controller;
         _setupMapMarkers();
+        _drawRoute();
       },
       onStyleLoadedCallback: _onStyleLoaded,
       initialCameraPosition: CameraPosition(
@@ -354,45 +381,251 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
 
   void _onStyleLoaded() {
     _setupMapMarkers();
+    _drawRoute();
+  }
+
+  Future<void> _drawRoute() async {
+    if (_mapController == null || !mounted || _routeInfo == null) return;
+    
+    // Get route start and end points from routeInfo
+    final startLocation = _routeInfo!.startLocation;
+    final endLocation = _routeInfo!.endLocation;
+    
+    // Draw the route line between start and end locations
+    await _drawRouteLine(startLocation, endLocation);
+    
+    // Add start and end location markers
+    await _addRouteMarkers(startLocation, endLocation);
+  }
+
+  Future<void> _drawRouteLine(latlong2.LatLng start, latlong2.LatLng end) async {
+    if (_mapController == null) return;
+    
+    try {
+      // Clear existing lines
+      await _mapController!.clearLines();
+      
+      // Fetch actual route from Ola Maps
+      final routeCoordinates = await _fetchRouteFromOlaMaps(start, end);
+      
+      if (routeCoordinates.isNotEmpty) {
+        // Draw the actual route path (matching driver dashboard styling)
+        await _mapController!.addLine(
+          LineOptions(
+            geometry: routeCoordinates,
+            lineColor: "#4285F4", // Blue color like driver dashboard
+            lineWidth: 6.0,
+            lineOpacity: 0.9,
+          ),
+        );
+        
+        print('Actual route drawn with ${routeCoordinates.length} points from ${_routeInfo?.startLocationName} to ${_routeInfo?.endLocationName}');
+      } else {
+        // Fallback to straight line if route fetching fails
+        await _mapController!.addLine(
+          LineOptions(
+            geometry: [
+              LatLng(start.latitude, start.longitude),
+              LatLng(end.latitude, end.longitude),
+            ],
+            lineColor: "#FF5722", // Orange color for route
+            lineWidth: 3.0,
+            lineOpacity: 0.8,
+          ),
+        );
+        
+        print('Fallback straight line route drawn from ${_routeInfo?.startLocationName} to ${_routeInfo?.endLocationName}');
+      }
+    } catch (e) {
+      print('Error drawing route line: $e');
+    }
+  }
+
+  Future<List<LatLng>> _fetchRouteFromOlaMaps(latlong2.LatLng start, latlong2.LatLng end) async {
+    try {
+      print('Fetching route from Ola Maps: ${start.latitude},${start.longitude} to ${end.latitude},${end.longitude}');
+      
+      // Use Ola Maps service to get directions
+      final result = await _olaMapsService.getDirections(
+        waypoints: [start, end],
+        mode: 'DRIVING',
+      );
+      
+      print('Ola Maps API response received successfully');
+      
+      // Extract route coordinates from response
+      final routeCoordinates = _extractRouteCoordinatesFromOlaResponse(result);
+      
+      if (routeCoordinates.isNotEmpty) {
+        print('Successfully extracted ${routeCoordinates.length} route points from Ola Maps');
+        return routeCoordinates;
+      } else {
+        print('No route coordinates found in Ola Maps response');
+      }
+    } catch (e) {
+      print('Error fetching route from Ola Maps: $e');
+    }
+    
+    // Return empty list if route fetching fails
+    print('Route fetching failed, returning empty list');
+    return [];
+  }
+
+  List<LatLng> _extractRouteCoordinatesFromOlaResponse(Map<String, dynamic> response) {
+    try {
+      // Extract route information from the response (similar to driver route screen)
+      final routes = response['routes'] as List?;
+      
+      if (routes == null || routes.isEmpty) {
+        print('No routes found in Ola Maps response');
+        return [];
+      }
+      
+      final route = routes[0] as Map<String, dynamic>;
+      
+      // Try to use the overview_polyline for the best route visualization
+      final overviewPolyline = route['overview_polyline'] as String?;
+      if (overviewPolyline != null && overviewPolyline.isNotEmpty) {
+        print('Using overview_polyline from Ola Maps for route visualization');
+        return _decodePolyline(overviewPolyline);
+      }
+      
+      // Fallback to extracting coordinates from legs/steps if available
+      final legs = route['legs'] as List?;
+      if (legs != null && legs.isNotEmpty) {
+        List<LatLng> coordinates = [];
+        for (final leg in legs) {
+          if (leg is Map<String, dynamic>) {
+            final steps = leg['steps'] as List?;
+            if (steps != null) {
+              for (final step in steps) {
+                if (step is Map<String, dynamic>) {
+                  final polyline = step['polyline'] as Map<String, dynamic>?;
+                  if (polyline != null) {
+                    final points = polyline['points'] as String?;
+                    if (points != null && points.isNotEmpty) {
+                      coordinates.addAll(_decodePolyline(points));
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        return coordinates;
+      }
+      
+      print('No usable route data found in Ola Maps response');
+      return [];
+    } catch (e) {
+      print('Error extracting route coordinates from Ola Maps response: $e');
+      return [];
+    }
+  }
+
+  List<LatLng> _decodePolyline(String encoded) {
+    // Decode polyline (same algorithm as used in Google Maps/Ola Maps)
+    List<LatLng> polyline = [];
+    int index = 0, len = encoded.length;
+    int lat = 0, lng = 0;
+
+    while (index < len) {
+      int b, shift = 0, result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      polyline.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+
+    return polyline;
+  }
+
+  Future<void> _addRouteMarkers(latlong2.LatLng start, latlong2.LatLng end) async {
+    if (_mapController == null) return;
+    
+    try {
+      // Add start location marker (green)
+      await _mapController!.addCircle(
+        CircleOptions(
+          geometry: LatLng(start.latitude, start.longitude),
+          circleRadius: 8.0,
+          circleColor: "#4CAF50", // Green for start
+          circleStrokeColor: "#FFFFFF",
+          circleStrokeWidth: 2.0,
+        ),
+      );
+      
+      // Add end location marker (red)
+      await _mapController!.addCircle(
+        CircleOptions(
+          geometry: LatLng(end.latitude, end.longitude),
+          circleRadius: 8.0,
+          circleColor: "#F44336", // Red for end
+          circleStrokeColor: "#FFFFFF",
+          circleStrokeWidth: 2.0,
+        ),
+      );
+      
+      print('Route markers added for start and end locations');
+    } catch (e) {
+      print('Error adding route markers: $e');
+    }
   }
 
   Future<void> _setupMapMarkers() async {
     if (_mapController == null || !mounted) return;
 
     try {
-      // Clear existing markers first
+      // Clear existing circles (but not lines)
       await _mapController!.clearCircles();
       
-      // Add user location marker with built-in icon
+      // Add user location marker (blue)
       if (_currentUserLocation != null) {
         await _mapController!.addCircle(
           CircleOptions(
             geometry: LatLng(_currentUserLocation!.latitude, _currentUserLocation!.longitude),
             circleRadius: 8.0,
-            circleColor: "#2196F3",
+            circleColor: "#2196F3", // Blue for user
             circleStrokeColor: "#FFFFFF",
             circleStrokeWidth: 2.0,
           ),
         );
         
+        print('User location marker added');
       } else {
-        
+        print('User location not available for marker');
       }
 
-      // Add bus location marker with built-in icon
+      // Add bus location marker (large green with pulse effect)
       if (_currentBusLocation != null) {
         await _mapController!.addCircle(
           CircleOptions(
             geometry: LatLng(_currentBusLocation!.latitude, _currentBusLocation!.longitude),
-            circleRadius: 12.0,
-            circleColor: "#4CAF50",
+            circleRadius: 15.0,
+            circleColor: "#4CAF50", // Green for bus
             circleStrokeColor: "#FFFFFF",
             circleStrokeWidth: 3.0,
           ),
         );
         
+        print('Bus location marker added');
       } else {
-        
+        print('Bus location not available, trying to get from real-time service');
         // Try to get the latest driver location from real-time service
         final realtimeService = Provider.of<RealtimeService>(context, listen: false);
         final tripId = widget.busInfo.tripId ?? widget.busInfo.busId;
@@ -412,9 +645,13 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
           }
         }
       }
+
+      // Re-add route markers if we have route info
+      if (_routeInfo != null) {
+        await _addRouteMarkers(_routeInfo!.startLocation, _routeInfo!.endLocation);
+      }
     } catch (e) {
-      
-      
+      print('Error setting up map markers: $e');
       // Continue without markers rather than crashing
     }
   }
@@ -459,13 +696,23 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Text(
-                    widget.busInfo.routeName ?? widget.busInfo.destination,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
+                  if (_routeInfo != null) ...[
+                    Text(
+                      '${_routeInfo!.startLocationName} → ${_routeInfo!.endLocationName}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    Text(
+                      widget.busInfo.routeName ?? widget.busInfo.destination,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

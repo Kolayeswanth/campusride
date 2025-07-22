@@ -66,6 +66,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   bool _showingFromSuggestions = false;
   bool _showingToSuggestions = false;
 
+  // Performance optimization variables
+  bool _mapInitialized = false;
+  Timer? _searchDebounceTimer;
+  Timer? _routeGenerationTimer;
+  Map<String, List<Map<String, dynamic>>> _searchCache = {};
+  static const Duration _debounceDelay = Duration(milliseconds: 500);
+
   LatLng? get _fromLocation => _stops.isNotEmpty ? LatLng(_stops.first['lat'], _stops.first['lng']) : null;
   LatLng? get _toLocation => _stops.length > 1 ? LatLng(_stops.last['lat'], _stops.last['lng']) : null;
 
@@ -73,9 +80,28 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   void initState() {
     super.initState();
     _mapController = MapController();
-    _validateApiKeys();
+    
+    // Optimize initialization with async operations
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _optimizedInitialization();
+    });
+  }
+
+  Future<void> _optimizedInitialization() async {
+    // Run initialization tasks in parallel for better performance
+    final futures = <Future<void>>[
+      _validateApiKeys(),
+      _requestLocationPermission(),
+    ];
+    
+    await Future.wait(futures);
+    
+    // Initialize route after API validation
     _initializeRoute();
-    _requestLocationPermission();
+    
+    setState(() {
+      _mapInitialized = true;
+    });
   }
 
   Future<void> _requestLocationPermission() async {
@@ -490,6 +516,30 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   Widget _buildMapVisualization() {
+    // Show loading indicator until map is fully initialized
+    if (!_mapInitialized) {
+      return Container(
+        height: 400,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Initializing map...',
+                style: AppTypography.bodyMedium.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Stack(
       children: [
         FlutterMap(
@@ -498,18 +548,26 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
             initialCenter: _currentMapCenter,
             initialZoom: 14.0,
             onTap: (tapPosition, point) => _onMapTap(point),
+            // Performance optimizations
+            maxZoom: 18.0,
+            minZoom: 8.0,
           ),
           children: [
+            // Optimized tile layer with OpenStreetMap
             TileLayer(
-              urlTemplate: ApiKeys.mapLibreStyleUrl.contains('maptiler')
-                  ? 'https://api.maptiler.com/maps/streets/256/{z}/{x}/{y}.png?key=${ApiKeys.mapTilerApiKey}'
-                  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.example.campusride',
+              maxZoom: 18,
+              // Performance optimizations
+              panBuffer: 1, // Reduced for better performance
+              keepBuffer: 2, // Reduced for better memory usage
             ),
-            if (_polylines.isNotEmpty)
+            // Conditionally render polylines for better performance
+            if (_polylines.isNotEmpty && _hasPolyline)
               PolylineLayer(
                 polylines: _polylines,
               ),
+            // Conditionally render markers for better performance
             if (_markers.isNotEmpty)
               MarkerLayer(
                 markers: _markers,
@@ -649,6 +707,18 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         _polylines.clear();
       }
     });
+  }
+
+  List<Polyline> _buildRoutePolylines() {
+    if (_routePoints.isEmpty) return [];
+    
+    return [
+      Polyline(
+        points: _routePoints,
+        color: AppColors.primary,
+        strokeWidth: 4,
+      ),
+    ];
   }
 
   Widget _buildRouteDetails() {
@@ -814,24 +884,70 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       return;
     }
 
+    // Cancel previous search timer
+    _searchDebounceTimer?.cancel();
+    
+    // Debounce search to reduce API calls
+    _searchDebounceTimer = Timer(_debounceDelay, () async {
+      await _performLocationSearch(text, isFrom);
+    });
+  }
+
+  Future<void> _performLocationSearch(String text, bool isFrom) async {
     try {
+      // Check cache first
+      final cacheKey = text.toLowerCase().trim();
+      if (_searchCache.containsKey(cacheKey)) {
+        final cachedSuggestions = _searchCache[cacheKey]!;
+        setState(() {
+          if (isFrom) {
+            _fromLocationSuggestions = cachedSuggestions;
+            _showingFromSuggestions = cachedSuggestions.isNotEmpty;
+          } else {
+            _toLocationSuggestions = cachedSuggestions;
+            _showingToSuggestions = cachedSuggestions.isNotEmpty;
+          }
+        });
+        return;
+      }
+
       // Use current map center as bias for more relevant results
       final suggestions = await _routeService.searchLocations(
         text,
         biasLocation: _currentMapCenter,
       );
 
-      setState(() {
-        if (isFrom) {
-          _fromLocationSuggestions = suggestions;
-          _showingFromSuggestions = suggestions.isNotEmpty;
-        } else {
-          _toLocationSuggestions = suggestions;
-          _showingToSuggestions = suggestions.isNotEmpty;
-        }
-      });
+      // Cache the results for future use
+      _searchCache[cacheKey] = suggestions;
+      
+      // Limit cache size to prevent memory issues
+      if (_searchCache.length > 50) {
+        _searchCache.remove(_searchCache.keys.first);
+      }
+
+      if (mounted) {
+        setState(() {
+          if (isFrom) {
+            _fromLocationSuggestions = suggestions;
+            _showingFromSuggestions = suggestions.isNotEmpty;
+          } else {
+            _toLocationSuggestions = suggestions;
+            _showingToSuggestions = suggestions.isNotEmpty;
+          }
+        });
+      }
     } catch (e) {
       print('Location search failed: $e');
+      // Show fallback message for better UX
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Location search temporarily unavailable'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
@@ -916,6 +1032,16 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   Future<void> _generateRoute() async {
     if (!_canGenerateRoute()) return;
 
+    // Cancel any pending route generation
+    _routeGenerationTimer?.cancel();
+    
+    // Debounce route generation to prevent excessive API calls
+    _routeGenerationTimer = Timer(_debounceDelay, () async {
+      await _performRouteGeneration();
+    });
+  }
+
+  Future<void> _performRouteGeneration() async {
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -934,59 +1060,77 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       Map<String, dynamic> routeData;
       bool usingFallback = false;
       
-      // Try to use Ola Maps first if API keys are valid
-      if (_apiKeyValid) {
-        try {
-          final route = await _fetchRoute(waypoints.first, waypoints.last);
-          if (route.isNotEmpty) {
-            routeData = _createRouteData(route, waypoints);
-          } else {
-            throw Exception('No route found');
-          }
-        } catch (e) {
-          print('Ola Maps failed: $e');
-          // Fall back to direct routing
-          routeData = _generateDirectRoute(waypoints);
-          usingFallback = true;
-          
-          // Show a more informative warning
-          final errorMsg = e.toString().toLowerCase();
-          String userMessage;
-          if (errorMsg.contains('no route found')) {
-            userMessage = 'Could not find a road route between the selected locations. Using direct path estimation.';
-          } else if (errorMsg.contains('timeout') || errorMsg.contains('network')) {
-            userMessage = 'Network connection issue. Using offline route estimation.';
-          } else if (errorMsg.contains('api key') || errorMsg.contains('access denied')) {
-            userMessage = 'External routing service unavailable. Using direct route estimation.';
-          } else {
-            userMessage = 'External routing service unavailable. Using direct route estimation.';
-          }
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(userMessage),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 5),
-              action: SnackBarAction(
-                label: 'OK',
-                textColor: Colors.white,
-                onPressed: () {},
-              ),
-            ),
-          );
-        }
-      } else {
-        // Use fallback routing if API keys are invalid
-        routeData = _generateDirectRoute(waypoints);
-        usingFallback = true;
+      // Check cache first for performance
+      final cacheKey = _generateCacheKey(waypoints);
+      if (_searchCache.containsKey(cacheKey)) {
+        final cachedRouteData = _searchCache[cacheKey]!.first;
+        routeData = Map<String, dynamic>.from(cachedRouteData);
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('API keys not configured. Using direct route estimation.'),
+            content: Text('Using cached route for better performance'),
             backgroundColor: Colors.blue,
-            duration: Duration(seconds: 4),
+            duration: Duration(seconds: 2),
           ),
         );
+      } else {
+        // Try to use Ola Maps first if API keys are valid
+        if (_apiKeyValid) {
+          try {
+            final route = await _fetchRoute(waypoints.first, waypoints.last);
+            if (route.isNotEmpty) {
+              routeData = _createRouteData(route, waypoints);
+              
+              // Cache the result
+              _searchCache[cacheKey] = [routeData];
+            } else {
+              throw Exception('No route found');
+            }
+          } catch (e) {
+            print('Ola Maps failed: $e');
+            // Fall back to direct routing
+            routeData = _generateDirectRoute(waypoints);
+            usingFallback = true;
+            
+            // Show a more informative warning
+            final errorMsg = e.toString().toLowerCase();
+            String userMessage;
+            if (errorMsg.contains('no route found')) {
+              userMessage = 'Could not find a road route between the selected locations. Using direct path estimation.';
+            } else if (errorMsg.contains('timeout') || errorMsg.contains('network')) {
+              userMessage = 'Network connection issue. Using offline route estimation.';
+            } else if (errorMsg.contains('api key') || errorMsg.contains('access denied')) {
+              userMessage = 'External routing service unavailable. Using direct route estimation.';
+            } else {
+              userMessage = 'External routing service unavailable. Using direct route estimation.';
+            }
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(userMessage),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'OK',
+                  textColor: Colors.white,
+                  onPressed: () {},
+                ),
+              ),
+            );
+          }
+        } else {
+          // Use fallback routing if API keys are invalid
+          routeData = _generateDirectRoute(waypoints);
+          usingFallback = true;
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('API keys not configured. Using direct route estimation.'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       }
 
       setState(() {
@@ -998,45 +1142,47 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         _totalTime = _formatDuration(routeData['total_duration']);
       });
 
-      // Update markers and polylines
-      _updateMarkersAndPolylines();
+      // Update markers and polylines with optimized batching
+      await _updateMarkersAndPolylinesOptimized();
       
       // Fit the map to show the entire route
       _fitBounds();
       
       // Show success message with route type indication
-      String routeType;
-      Color messageColor;
-      
-      if (usingFallback || routeData.containsKey('is_fallback')) {
-        routeType = 'Direct route (estimated)';
-        messageColor = Colors.orange;
-      } else {
-        // Check if this might be a straight-line route by examining segment count
-        final segments = routeData['segment_distances'] as List<String>? ?? [];
-        if (segments.isEmpty || _routePoints.length < 5) {
+      if (!_searchCache.containsKey(cacheKey)) {
+        String routeType;
+        Color messageColor;
+        
+        if (usingFallback || routeData.containsKey('is_fallback')) {
           routeType = 'Direct route (estimated)';
           messageColor = Colors.orange;
         } else {
-          routeType = 'Optimized road route';
-          messageColor = Colors.green;
+          // Check if this might be a straight-line route by examining segment count
+          final segments = routeData['segment_distances'] as List<String>? ?? [];
+          if (segments.isEmpty || _routePoints.length < 5) {
+            routeType = 'Direct route (estimated)';
+            messageColor = Colors.orange;
+          } else {
+            routeType = 'Optimized road route';
+            messageColor = Colors.green;
+          }
         }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$routeType generated! Distance: ${_distanceKm?.toStringAsFixed(1)} km'),
+            backgroundColor: messageColor,
+            duration: Duration(seconds: 3),
+            action: routeType.contains('Direct') ? SnackBarAction(
+              label: 'Info',
+              textColor: Colors.white,
+              onPressed: () {
+                _showRouteTypeInfo();
+              },
+            ) : null,
+          ),
+        );
       }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$routeType generated! Distance: ${_distanceKm?.toStringAsFixed(1)} km'),
-          backgroundColor: messageColor,
-          duration: Duration(seconds: 3),
-          action: routeType.contains('Direct') ? SnackBarAction(
-            label: 'Info',
-            textColor: Colors.white,
-            onPressed: () {
-              _showRouteTypeInfo();
-            },
-          ) : null,
-        ),
-      );
 
     } catch (e) {
       print('Error generating route: $e');
@@ -1048,6 +1194,22 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         });
       }
     }
+  }
+
+  String _generateCacheKey(List<LatLng> waypoints) {
+    return waypoints.map((w) => '${w.latitude.toStringAsFixed(4)},${w.longitude.toStringAsFixed(4)}').join('|');
+  }
+
+  Future<void> _updateMarkersAndPolylinesOptimized() async {
+    // Batch marker and polyline updates for better performance
+    final markers = _buildStopMarkers();
+    final polylines = _buildRoutePolylines();
+    
+    // Update state in a single setState call
+    setState(() {
+      _markers = markers;
+      _polylines = polylines;
+    });
   }
 
   bool _areCoordinatesValid(List<LatLng> waypoints) {
@@ -1341,5 +1503,16 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       _fromLocationSuggestions.clear();
       _toLocationSuggestions.clear();
     });
+  }
+
+  @override
+  void dispose() {
+    // Clean up resources for better performance
+    _searchDebounceTimer?.cancel();
+    _routeGenerationTimer?.cancel();
+    _fromController.dispose();
+    _toController.dispose();
+    _searchCache.clear();
+    super.dispose();
   }
 }
