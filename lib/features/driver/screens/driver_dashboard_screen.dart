@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:ui' hide Point;
+import 'dart:ui';
 import 'dart:math';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -12,7 +12,9 @@ import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:http/http.dart' as http;
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/map_service.dart';
+import '../../../core/services/location_service.dart';
 import '../widgets/driver_id_dialog.dart';
+import '../widgets/route_selection_dialog.dart';
 import '../models/village_crossing.dart';
 import '../widgets/village_crossing_log.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -106,6 +108,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   String? _tripId;
 
   double _currentSpeed = 0.0; // Current speed in m/s
+
+  // Route and trip management
+  BusRoute? _selectedRoute;
+  DriverTrip? _currentActiveTrip;
+  bool _hasCheckedActiveTrip = false;
 
   // Add method to toggle UI visibility
   void _toggleUIVisibility() {
@@ -236,6 +243,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     super.initState();
     _initializeLocation();
     _driverIdController.text = _driverId ?? '';
+    _checkForActiveTrip();
     
     // Initialize MapService
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -247,6 +255,237 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _locationUpdateTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) => _updateLocation(),
+    );
+  }
+
+  /// Check if driver has an active trip and handle route resumption
+  Future<void> _checkForActiveTrip() async {
+    if (_hasCheckedActiveTrip) return;
+    
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final activeTrip = await tripService.getCurrentDriverActiveTrip();
+      
+      if (activeTrip != null) {
+        setState(() {
+          _currentActiveTrip = activeTrip;
+          _hasCheckedActiveTrip = true;
+        });
+        
+        // Get the route information
+        final route = tripService.getRouteById(activeTrip.routeId);
+        if (route != null) {
+          setState(() {
+            _selectedRoute = route;
+          });
+          
+          // Show resume trip dialog
+          if (mounted) {
+            _showResumeActiveTrip(activeTrip, route);
+          }
+        }
+      } else {
+        setState(() {
+          _hasCheckedActiveTrip = true;
+        });
+      }
+    } catch (e) {
+      print('Error checking for active trip: $e');
+      setState(() {
+        _hasCheckedActiveTrip = true;
+      });
+    }
+  }
+
+  /// Show dialog to resume active trip or allow switching routes
+  void _showResumeActiveTrip(DriverTrip activeTrip, BusRoute route) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Active Trip Found'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('You have an active trip on route: ${route.name}'),
+            const SizedBox(height: 8),
+            Text('Started: ${_formatDateTime(activeTrip.startTime)}'),
+            const SizedBox(height: 16),
+            const Text('What would you like to do?'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showEndTripConfirmation(activeTrip, route);
+            },
+            child: const Text('End Current Trip'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _resumeActiveTrip(activeTrip, route);
+            },
+            child: const Text('Resume Trip'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Format DateTime for display
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day}/${dateTime.month} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// Resume the active trip
+  Future<void> _resumeActiveTrip(DriverTrip trip, BusRoute route) async {
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final success = await tripService.resumeActiveTrip(trip, route);
+      
+      if (success) {
+        setState(() {
+          _isTripStarted = true;
+          _driverId = trip.driverId;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Resumed trip on ${route.name}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        _showError('Failed to resume trip');
+      }
+    } catch (e) {
+      _showError('Error resuming trip: $e');
+    }
+  }
+
+  /// Show confirmation dialog to end active trip
+  void _showEndTripConfirmation(DriverTrip activeTrip, BusRoute route) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('End Current Trip'),
+        content: Text('Are you sure you want to end your trip on ${route.name}? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await _endActiveTrip(activeTrip);
+              _showRouteSelection();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('End Trip'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// End the active trip
+  Future<void> _endActiveTrip(DriverTrip trip) async {
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      // TODO: Implement trip ending logic in TripService
+      // For now, we'll update the trip status to completed
+      
+      setState(() {
+        _currentActiveTrip = null;
+        _selectedRoute = null;
+        _isTripStarted = false;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Trip ended successfully'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } catch (e) {
+      _showError('Failed to end trip: $e');
+    }
+  }
+
+  /// Show route selection dialog
+  Future<void> _showRouteSelection() async {
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final locationService = LocationService(); // Create new instance
+      
+      final result = await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => RouteSelectionDialog(
+          tripService: tripService,
+          locationService: locationService,
+        ),
+      );
+      
+      if (result != null) {
+        final route = result['route'] as BusRoute;
+        final busId = result['busId'] as String?;
+        
+        // Validate route availability
+        final validation = await tripService.canStartTripOnRoute(route.id);
+        
+        if (validation['canStart'] == true) {
+          if (validation['hasExistingTrip'] == true) {
+            // Resume existing trip
+            final existingTrip = validation['existingTrip'] as DriverTrip;
+            await _resumeActiveTrip(existingTrip, route);
+          } else {
+            // Start new trip
+            await _startNewTrip(route, busId);
+          }
+        } else {
+          _showError(validation['reason'] as String);
+        }
+      }
+    } catch (e) {
+      _showError('Error in route selection: $e');
+    }
+  }
+
+  /// Start a new trip with selected route
+  Future<void> _startNewTrip(BusRoute route, String? busId) async {
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      
+      // TODO: Implement trip creation in TripService
+      // For now, we'll set the selected route
+      setState(() {
+        _selectedRoute = route;
+        _isTripStarted = true;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Started trip on ${route.name}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      _showError('Failed to start trip: $e');
+    }
+  }
+
+  /// Show error message
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
     );
   }
 
@@ -2482,6 +2721,47 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     label: const Text('Enter ID'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Theme.of(context).primaryColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Route Selection Button
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        if (!_hasCheckedActiveTrip) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Checking for active trips...')),
+                          );
+                          return;
+                        }
+                        
+                        if (_currentActiveTrip != null) {
+                          // Show active trip management
+                          final tripService = Provider.of<TripService>(context, listen: false);
+                          final route = tripService.getRouteById(_currentActiveTrip!.routeId);
+                          if (route != null) {
+                            _showResumeActiveTrip(_currentActiveTrip!, route);
+                          }
+                        } else {
+                          // Show route selection
+                          _showRouteSelection();
+                        }
+                      },
+                      icon: Icon(
+                        _currentActiveTrip != null ? Icons.directions_bus : Icons.add_road,
+                        color: _currentActiveTrip != null ? Colors.green : null,
+                      ),
+                      label: Text(
+                        _currentActiveTrip != null 
+                            ? 'Manage Active Trip' 
+                            : (_selectedRoute != null ? 'Route: ${_selectedRoute!.name}' : 'Select Route')
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _currentActiveTrip != null 
+                            ? Colors.green[100] 
+                            : (_selectedRoute != null ? Colors.blue[100] : Colors.grey[100]),
+                        foregroundColor: _currentActiveTrip != null 
+                            ? Colors.green[800] 
+                            : (_selectedRoute != null ? Colors.blue[800] : Colors.grey[800]),
                       ),
                     ),
                 ],
