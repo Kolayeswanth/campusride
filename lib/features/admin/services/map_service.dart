@@ -13,10 +13,13 @@ class MapService {
     required double endLat,
     required double endLng,
   }) async {
+    final uri = Uri.parse('$_baseUrl/directions/driving-car/geojson').replace(
+      queryParameters: {'api_key': _apiKey},
+    );
+    
     final response = await http.post(
-      Uri.parse('$_baseUrl/directions/driving-car/geojson'),
+      uri,
       headers: {
-        'Authorization': _apiKey,
         'Content-Type': 'application/json',
         'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
       },

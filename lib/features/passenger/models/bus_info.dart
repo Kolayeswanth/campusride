@@ -11,6 +11,16 @@ class BusInfo {
   final String routeNumber;
   final int availableSeats;
   final DateTime lastUpdated;
+  final String? routeId;
+
+  // Additional properties for the new bus tracking system
+  final String? busNumber;
+  final String? tripId;
+  final LatLng? lastLocation;
+  final DateTime? lastUpdateTime;
+  final String? routeName;
+  final String? fromDestination;
+  final String? toDestination;
 
   BusInfo({
     required this.busId,
@@ -23,7 +33,50 @@ class BusInfo {
     required this.routeNumber,
     required this.availableSeats,
     required this.lastUpdated,
+    this.routeId,
+    this.busNumber,
+    this.tripId,
+    this.lastLocation,
+    this.lastUpdateTime,
+    this.routeName,
+    this.fromDestination,
+    this.toDestination,
   });
+
+  // Factory constructor for new bus tracking system
+  factory BusInfo.fromActiveTrip({
+    required String busNumber,
+    required String routeId,
+    required String? driverId,
+    required String? tripId,
+    required bool isActive,
+    required LatLng? lastLocation,
+    required DateTime lastUpdateTime,
+    required String routeName,
+    String? fromDestination,
+    String? toDestination,
+  }) {
+    return BusInfo(
+      busId: tripId ?? '',
+      driverId: driverId ?? '',
+      currentLocation: lastLocation ?? LatLng(0, 0),
+      destination: toDestination ?? routeName,
+      estimatedTime: '',
+      estimatedDistance: '',
+      isActive: isActive,
+      routeNumber: busNumber,
+      availableSeats: 0,
+      lastUpdated: lastUpdateTime,
+      routeId: routeId,
+      busNumber: busNumber,
+      tripId: tripId,
+      lastLocation: lastLocation,
+      lastUpdateTime: lastUpdateTime,
+      routeName: routeName,
+      fromDestination: fromDestination,
+      toDestination: toDestination,
+    );
+  }
 
   factory BusInfo.fromJson(Map<String, dynamic> json) {
     return BusInfo(
@@ -40,6 +93,12 @@ class BusInfo {
       lastUpdated: json['last_updated'] != null
           ? DateTime.parse(json['last_updated'])
           : DateTime.now(),
+      routeId: json['route_id'],
+      busNumber: json['bus_number'],
+      tripId: json['trip_id'],
+      routeName: json['route_name'],
+      fromDestination: json['from_destination'],
+      toDestination: json['to_destination'],
     );
   }
 }

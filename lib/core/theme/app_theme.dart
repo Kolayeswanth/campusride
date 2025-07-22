@@ -100,14 +100,9 @@ class AppTheme {
       ),
 
       // Card Theme
-      cardTheme: CardThemeData(
-        color: AppColors.card,
+      cardTheme: const CardThemeData(
         elevation: 1,
-        shadowColor: Colors.black.withOpacity(0.1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       ),
 
       // Input Decoration Theme

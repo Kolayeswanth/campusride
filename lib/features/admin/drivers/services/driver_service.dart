@@ -14,6 +14,28 @@ class DriverService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
+  // Get all drivers regardless of college
+  Future<void> getAllDrivers() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final response = await _supabase
+          .from(_table)
+          .select()
+          .order('created_at', ascending: false);
+
+      _drivers = response.map((data) => Driver.fromJson(data)).toList();
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   // Get drivers for a specific college
   List<Driver> getDriversForCollege(String collegeId) {
     return _drivers.where((driver) => driver.currentCollegeId == collegeId).toList();
@@ -151,4 +173,4 @@ class DriverService extends ChangeNotifier {
         .update({'last_active': DateTime.now().toIso8601String()})
         .eq('id', id);
   }
-} 
+}

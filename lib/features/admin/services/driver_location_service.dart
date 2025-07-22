@@ -21,26 +21,34 @@ class DriverLocationService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // In a real-world app, we'd check permissions for location access
+      // For the simulation mode, we'll skip this and just create simulated data
       // Request location permissions
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+      try {
+        LocationPermission permission = await Geolocator.checkPermission();
         if (permission == LocationPermission.denied) {
-          throw Exception('Location permissions are denied');
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) {
+            debugPrint('Location permissions are denied, using simulation mode');
+          }
         }
-      }
 
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception('Location permissions are permanently denied');
+        if (permission == LocationPermission.deniedForever) {
+          debugPrint('Location permissions are permanently denied, using simulation mode');
+        }
+      } catch (e) {
+        debugPrint('Error checking location permissions: $e. Using simulation mode.');
       }
 
       // Start location tracking for each driver
+      debugPrint('Starting tracking for ${driverIds.length} drivers');
       for (final driverId in driverIds) {
         _routeHistory[driverId] = [];
         _startDriverTracking(driverId);
       }
     } catch (e) {
       _error = e.toString();
+      debugPrint('Error in startTracking: $_error');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -49,27 +57,56 @@ class DriverLocationService extends ChangeNotifier {
 
   void _startDriverTracking(String driverId) {
     // In a real app, this would connect to the driver's device
-    // For now, we'll simulate the driver's location
+    // For now, we'll simulate the driver's location with some randomness
+    
+    // Starting with a position in central Hyderabad (or modify for your campus)
+    double baseLat = 17.385044;
+    double baseLng = 78.486671;
+    
+    // Add some randomness for each driver
+    baseLat += (driverId.hashCode % 100) / 10000.0;
+    baseLng += (driverId.hashCode % 100) / 10000.0;
+    
+    // Small increments to simulate movement
+    double latIncrement = (driverId.hashCode % 10 - 5) / 10000.0; // Random drift
+    double lngIncrement = (driverId.hashCode % 10 - 5) / 10000.0; // Random drift
+    
+    // Track current position for this driver
+    double currentLat = baseLat;
+    double currentLng = baseLng;
+    double currentSpeed = 0.0;
+    double currentHeading = 0.0;
+    
     _locationTimers[driverId] = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
-        // Get current position
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-
-        // Calculate speed and heading
-        final speed = position.speed * 3.6; // Convert m/s to km/h
-        final heading = position.heading;
+        // In production, we would get the driver's actual position
+        // For simulation, we'll use our simulated position
+        
+        // Update position with small random changes
+        currentLat += latIncrement;
+        currentLng += lngIncrement;
+        
+        // Simulate some speed variation (0-60 km/h)
+        currentSpeed = 20 + (DateTime.now().millisecondsSinceEpoch % 400) / 10;
+        
+        // Calculate heading based on movement direction
+        if (latIncrement != 0 || lngIncrement != 0) {
+          currentHeading = (180 / 3.14159) * 
+              (latIncrement.abs() > lngIncrement.abs() 
+                ? (latIncrement > 0 ? 0 : 180) 
+                : (lngIncrement > 0 ? 90 : 270));
+        }
 
         // Create location point
         final locationPoint = LocationPoint(
-          latitude: position.latitude,
-          longitude: position.longitude,
+          latitude: currentLat,
+          longitude: currentLng,
           timestamp: DateTime.now(),
         );
 
         // Update route history
-        _routeHistory[driverId]?.add(locationPoint);
+        _routeHistory[driverId] ??= [];
+        _routeHistory[driverId]!.add(locationPoint);
         if (_routeHistory[driverId]!.length > 100) {
           _routeHistory[driverId]!.removeAt(0);
         }
@@ -77,17 +114,23 @@ class DriverLocationService extends ChangeNotifier {
         // Update driver location
         _locations[driverId] = DriverLocation(
           driverId: driverId,
-          latitude: position.latitude,
-          longitude: position.longitude,
+          latitude: currentLat,
+          longitude: currentLng,
           timestamp: DateTime.now(),
-          speed: speed,
-          heading: heading,
+          speed: currentSpeed,
+          heading: currentHeading,
           routePoints: _routeHistory[driverId] ?? [],
         );
 
         notifyListeners();
+        
+        // Add some randomness to the increments occasionally to create more natural paths
+        if (DateTime.now().second % 10 == 0) {
+          latIncrement = (driverId.hashCode % 10 - 5) / 10000.0;
+          lngIncrement = (driverId.hashCode % 10 - 5) / 10000.0;
+        }
       } catch (e) {
-        print('Error updating driver location: $e');
+        debugPrint('Error updating driver location: $e');
       }
     });
   }

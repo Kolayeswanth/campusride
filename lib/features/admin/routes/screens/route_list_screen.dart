@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/route_service.dart';
-import '../models/route.dart' as route_model;
+//import '../models/route.dart' as route_model;
 import 'route_form_screen.dart';
 
 class RouteListScreen extends StatefulWidget {
@@ -87,13 +87,13 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   leading: const CircleAvatar(
                     child: Icon(Icons.route),
                   ),
-                  title: Text(route.name),
+                  title: Text(route.name ?? 'Bus ${route.busNumber}'),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('From: ${route.startLocation}'),
                       Text('To: ${route.endLocation}'),
-                      Text(route.description),
+                      if (route.description != null) Text(route.description!),
                     ],
                   ),
                   trailing: Row(

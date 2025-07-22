@@ -4,9 +4,6 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../shared/widgets/widgets.dart';
-import '../../../shared/animations/animations.dart';
-import 'role_selection_screen.dart';
-import '../../driver/screens/driver_home_screen.dart';
 
 /// RegisterScreen handles new user registration with email/password.
 class RegisterScreen extends StatefulWidget {
@@ -68,26 +65,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
         if (!mounted) return;
 
         if (authService.error == null) {
-          // If role was set successfully, go to driver home
-          AnimatedNavigation.fadeInAndRemoveUntil(
-            context,
-            const DriverHomeScreen(),
-          );
+          // If role was set successfully, navigate to driver home
+          Navigator.of(context).pushNamedAndRemoveUntil('/driver_home', (route) => false);
         } else {
-          // If there was an error setting the role, go to role selection
-          AnimatedNavigation.fadeInAndRemoveUntil(
-            context,
-            const RoleSelectionScreen(),
+          // If there was an error, show error message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(authService.error!)),
           );
         }
       } else {
-        // If standard registration, go to role selection
-        AnimatedNavigation.fadeInAndRemoveUntil(
-          context,
-          const RoleSelectionScreen(),
-        );
+        // If standard registration, set as passenger role
+        await authService.updateUserRole('passenger');
+        
+        if (!mounted) return;
+        
+        if (authService.error == null) {
+          // Navigate to passenger home
+          Navigator.of(context).pushNamedAndRemoveUntil('/passenger_home', (route) => false);
+        } else {
+          // If there was an error, show error message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(authService.error!)),
+          );
+        }
       }
-
     }
   }
 

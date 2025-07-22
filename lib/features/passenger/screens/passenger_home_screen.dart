@@ -1,15 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/services/auth_service.dart';
-import '../../../core/services/trip_service.dart';
-import '../../../shared/widgets/widgets.dart';
-import 'bus_tracking_screen.dart';
-import 'bus_search_screen.dart';
+import '../../../core/services/realtime_service.dart';
+import '../../../core/services/favorites_service.dart';
+import '../models/bus_info.dart';
+import 'bus_list_screen.dart';
+import 'live_bus_tracking_screen.dart';
+import '../../auth/screens/profile_screen.dart';
 
 /// PassengerHomeScreen is the main screen for passenger users.
-/// It shows nearby buses, allows searching for routes, and displays a map.
+/// It shows live bus information and provides quick access to tracking features.
 class PassengerHomeScreen extends StatefulWidget {
   const PassengerHomeScreen({Key? key}) : super(key: key);
 
@@ -19,83 +23,85 @@ class PassengerHomeScreen extends StatefulWidget {
 
 class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   int _currentIndex = 0;
-  Timer? _refreshTimer;
-  final _searchController = TextEditingController();
-  Timer? _searchDebounce;
-  String _searchQuery = '';
-
-  // Demo data for buses
-  final List<Map<String, dynamic>> _nearbyBuses = [
-    {
-      'id': 'bus1',
-      'name': 'Engineering Campus Bus',
-      'routeNumber': '101',
-      'eta': '2 min',
-      'distance': '0.3 km',
-      'currentStop': 'Student Center',
-      'nextStop': 'Engineering Building',
-      'capacity': 'Low',
-      'isExpress': false,
-    },
-    {
-      'id': 'bus2',
-      'name': 'Main Campus Express',
-      'routeNumber': '202',
-      'eta': '5 min',
-      'distance': '0.8 km',
-      'currentStop': 'Library',
-      'nextStop': 'Student Center',
-      'capacity': 'Medium',
-      'isExpress': true,
-    },
-    {
-      'id': 'bus3',
-      'name': 'South Campus Shuttle',
-      'routeNumber': '303',
-      'eta': '8 min',
-      'distance': '1.2 km',
-      'currentStop': 'Sports Complex',
-      'nextStop': 'Dining Hall',
-      'capacity': 'High',
-      'isExpress': false,
-    },
-  ];
-
-  // Demo data for favorite routes
-  final List<Map<String, dynamic>> _favoriteRoutes = [
-    {
-      'id': 'route1',
-      'name': 'Dorm to Engineering',
-      'startPoint': 'Residence Hall',
-      'endPoint': 'Engineering Building',
-      'busNumbers': ['101', '202'],
-      'duration': '15 min',
-    },
-    {
-      'id': 'route2',
-      'name': 'Main Campus Loop',
-      'startPoint': 'Student Center',
-      'endPoint': 'Student Center',
-      'busNumbers': ['101', '303'],
-      'duration': '25 min',
-    },
-  ];
+  List<Map<String, dynamic>> _allBuses = [];
+  List<Map<String, dynamic>> _activeDriverTrips = [];
+  bool _isLoadingOfflineBuses = false;
+  final FavoritesService _favoritesService = FavoritesService.instance;
 
   @override
   void initState() {
     super.initState();
-    // Refresh bus data every 30 seconds
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _refreshBusData();
-    });
+    _initializeServices();
+    _initializeRealtimeSubscriptions();
+    _loadAllBuses();
   }
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    _searchController.dispose();
-    _searchDebounce?.cancel();
-    super.dispose();
+  /// Initialize required services
+  Future<void> _initializeServices() async {
+    await _favoritesService.initialize();
+  }
+
+  /// Load all buses from database to show offline ones
+  Future<void> _loadAllBuses() async {
+    setState(() {
+      _isLoadingOfflineBuses = true;
+    });
+
+    try {
+      // Get all buses/routes from the database
+      final routesResponse = await Supabase.instance.client
+          .from('routes')
+          .select('*')
+          .order('route_name');
+      
+      // Get active driver trips from database
+      final driverTripsResponse = await Supabase.instance.client
+          .from('driver_trips')
+          .select('''
+            id,
+            driver_id,
+            route_id,
+            status,
+            created_at,
+            routes(
+              route_name,
+              start_location,
+              end_location,
+              schedule_time
+            )
+          ''')
+          .eq('status', 'active')
+          .order('created_at', ascending: false);
+      
+      setState(() {
+        _allBuses = List<Map<String, dynamic>>.from(routesResponse);
+        _activeDriverTrips = List<Map<String, dynamic>>.from(driverTripsResponse);
+        _isLoadingOfflineBuses = false;
+      });
+    } catch (e) {
+      print('Error loading buses: $e');
+      setState(() {
+        _isLoadingOfflineBuses = false;
+      });
+    }
+  }
+
+  /// Initialize real-time subscriptions for live data updates
+  void _initializeRealtimeSubscriptions() {
+    
+    
+    final realtimeService = Provider.of<RealtimeService>(context, listen: false);
+    realtimeService.initializeSubscriptions();
+    
+    // Listen to changes in active trips to update offline buses
+    realtimeService.addListener(() {
+      if (mounted) {
+        setState(() {
+          // This will trigger a rebuild of the offline buses section
+          // with updated filtering based on new active trips
+        });
+      }
+    });
   }
 
   /// Sign out the user
@@ -108,53 +114,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
-  void _onSearchChanged(String query) {
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
-      setState(() {
-        _searchQuery = query.toLowerCase();
-      });
-
-      // If search query is not empty, show a snackbar with instructions
-      if (query.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Searching for "$query"...'),
-            duration: const Duration(seconds: 2),
-            action: SnackBarAction(
-              label: 'View All Results',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const BusSearchScreen(),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    });
-  }
-
-  void _navigateToRoute(String routeId, String routeName) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => BusTrackingScreen(
-          routeId: routeId,
-          busId: 'bus_${routeId.substring(0, 4)}',
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final tripService = Provider.of<TripService>(context);
-    final authService = Provider.of<AuthService>(context);
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -191,261 +152,311 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header with user greeting
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Good Morning, Student',
-                    style: AppTypography.headlineSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Where are you headed today?',
-                    style: AppTypography.bodyMedium.copyWith(
-                      color: AppColors.textSecondary,
+        child: Consumer<RealtimeService>(
+          builder: (context, realtimeService, child) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header with user greeting and stats
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withOpacity(0.1),
+                        AppColors.primary.withOpacity(0.05),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-
-            // Plan Your Trip Card
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Plan Your Trip',
-                    style: AppTypography.titleMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Enter starting point',
-                      prefixIcon:
-                          const Icon(Icons.location_on, color: Colors.green),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 12, horizontal: 16),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Enter destination',
-                      prefixIcon:
-                          const Icon(Icons.location_on, color: Colors.red),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 12, horizontal: 16),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                                'Planning your trip... This feature is coming soon!'),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Find Routes'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Search bar
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: TextField(
-                controller: _searchController,
-                onChanged: _onSearchChanged,
-                decoration: InputDecoration(
-                  hintText: 'Search routes, buses, or stops',
-                  hintStyle: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.textHint,
-                  ),
-                  prefixIcon: const Icon(Icons.search),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ),
-
-            // Main content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Nearby buses section
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'Nearby Buses',
-                            style: AppTypography.titleLarge,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Welcome Back!',
+                                style: AppTypography.headlineSmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Track your campus buses in real-time',
+                                style: AppTypography.bodyMedium.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
-                          TextButton(
-                            onPressed: () {
-                              // View all
-                            },
-                            child: const Text('View All'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(
-                      height: 180,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: _nearbyBuses.length,
-                        itemBuilder: (context, index) {
-                          final bus = _nearbyBuses[index];
-                          return _buildBusCard(bus);
-                        },
-                      ),
-                    ),
-
-                    // Favorite routes section
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Your Favorite Routes',
-                            style: AppTypography.titleLarge,
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              // View all
-                            },
-                            child: const Text('View All'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _favoriteRoutes.length,
-                      itemBuilder: (context, index) {
-                        final route = _favoriteRoutes[index];
-                        return _buildRouteCard(route);
-                      },
-                    ),
-
-                    // Map section
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        'Map View',
-                        style: AppTypography.titleLarge,
-                      ),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      height: 200,
-                      decoration: BoxDecoration(
-                        color: AppColors.card,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.map_outlined,
-                              size: 48,
-                              color: AppColors.textSecondary,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Campus Map',
-                              style: AppTypography.titleMedium.copyWith(
-                                color: AppColors.textSecondary,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.circle,
+                                  color: Colors.green,
+                                  size: 8,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${realtimeService.activeTrips.length} Live',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Main Content with Live and Offline Bus Cards
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Consumer<RealtimeService>(
+                      builder: (context, realtimeService, child) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Live Buses Section
+                            Expanded(
+                              flex: 3,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'Live Buses',
+                                        style: AppTypography.titleLarge.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: Colors.green,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '${realtimeService.activeTrips.length} LIVE',
+                                              style: TextStyle(
+                                                color: Colors.green.shade700,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Expanded(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surface,
+                                        borderRadius: BorderRadius.circular(16),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.05),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: realtimeService.activeTrips.isEmpty
+                                          ? Center(
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(
+                                                    Icons.live_tv_outlined,
+                                                    size: 48,
+                                                    color: Colors.grey[400],
+                                                  ),
+                                                  const SizedBox(height: 12),
+                                                  Text(
+                                                    'No live buses right now',
+                                                    style: AppTypography.titleMedium.copyWith(
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    'Buses will appear here when active',
+                                                    style: AppTypography.bodySmall.copyWith(
+                                                      color: Colors.grey[500],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            )
+                                          : ListView.separated(
+                                              padding: const EdgeInsets.all(16),
+                                              itemCount: realtimeService.activeTrips.length,
+                                              separatorBuilder: (context, index) => const SizedBox(height: 12),
+                                              itemBuilder: (context, index) {
+                                                final trip = realtimeService.activeTrips.values.elementAt(index);
+                                                final location = realtimeService.getDriverLocation(trip['id']);
+                                                return _buildLiveBusCard(trip, location);
+                                              },
+                                            ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 16),
-                            CustomButton.small(
-                              text: 'Open Map',
-                              onPressed: () {
-                                // Open map
-                              },
-                              prefixIcon: Icons.open_in_new,
+                            
+                            const SizedBox(height: 20),
+                            
+                            // Offline Buses Section
+                            Expanded(
+                              flex: 2,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'Offline Buses',
+                                        style: AppTypography.titleLarge.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: Colors.orange,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              'OFFLINE',
+                                              style: TextStyle(
+                                                color: Colors.orange.shade700,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Expanded(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surface,
+                                        borderRadius: BorderRadius.circular(16),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.05),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: _buildOfflineBusesSection(),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                        ),
-                      ),
+                        );
+                      },
                     ),
-
-                    const SizedBox(height: 24),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
+                const SizedBox(height: 16),
+              ],
+            );
+          },
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
+        selectedItemColor: AppColors.primary,
+        unselectedItemColor: Colors.grey,
         onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
+          if (index == 1) { // Live tab - directly go to live tracking
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BusListScreen(initialTab: 0), // Tab 0 for live buses
+              ),
+            );
+          } else if (index == 2) { // Favorites tab
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BusListScreen(initialTab: 1), // Tab 1 for favorites
+              ),
+            );
+          } else if (index == 3) { // Profile tab
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ProfileScreen(),
+              ),
+            );
+          } else {
+            setState(() {
+              _currentIndex = index;
+            });
+          }
         },
         items: const [
           BottomNavigationBarItem(
@@ -454,14 +465,14 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            activeIcon: Icon(Icons.map),
-            label: 'Routes',
+            icon: Icon(Icons.live_tv_outlined),
+            activeIcon: Icon(Icons.live_tv),
+            label: 'Live',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.favorite_outline),
             activeIcon: Icon(Icons.favorite),
-            label: 'Favorites',
+            label: 'Favourites',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
@@ -473,293 +484,638 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     );
   }
 
-  /// Builds a card for a nearby bus.
-  Widget _buildBusCard(Map<String, dynamic> bus) {
-    final isExpress = bus['isExpress'] as bool;
-    Color capacityColor;
-
-    switch (bus['capacity']) {
-      case 'Low':
-        capacityColor = Colors.green;
-        break;
-      case 'Medium':
-        capacityColor = Colors.orange;
-        break;
-      case 'High':
-        capacityColor = Colors.red;
-        break;
-      default:
-        capacityColor = Colors.grey;
+  /// Builds a card for displaying live bus information with direct tracking
+  Widget _buildLiveBusCard(Map<String, dynamic> trip, Map<String, dynamic>? location) {
+    final routeName = trip['route_name'] as String? ?? 'Unknown Route';
+    final routeId = trip['route_id'] as String? ?? '';
+    final busNumber = trip['bus_number'] as String? ?? 'Unknown';
+    final fromDestination = trip['from_destination'] as String? ?? 'Unknown';
+    final toDestination = trip['to_destination'] as String? ?? 'Unknown';
+    final startTime = trip['start_time'] as String?;
+    
+    DateTime? tripStartTime;
+    if (startTime != null) {
+      try {
+        tripStartTime = DateTime.parse(startTime);
+      } catch (e) {
+        // Handle parsing error
+      }
     }
-
+    
     return Container(
-      width: 260,
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: GlassmorphicContainer(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.green.withOpacity(0.3),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '#${bus['routeNumber']}',
-                      style: AppTypography.labelMedium.copyWith(
-                        color: Colors.white,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      routeName,
+                      style: AppTypography.titleMedium.copyWith(
                         fontWeight: FontWeight.bold,
+                        color: Colors.green.shade700,
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      bus['name'],
-                      style: AppTypography.titleSmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  if (isExpress)
+                    const SizedBox(height: 4),
+                    Text(
+                      'Bus #$busNumber',
+                      style: AppTypography.bodyMedium.copyWith(
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Favorite button
+              IconButton(
+                onPressed: () async {
+                  await _favoritesService.toggleFavorite(routeId);
+                  setState(() {}); // Refresh UI
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        _favoritesService.isFavorite(routeId) 
+                            ? 'Added to favorites' 
+                            : 'Removed from favorites'
+                      ),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                icon: Icon(
+                  _favoritesService.isFavorite(routeId) 
+                      ? Icons.favorite 
+                      : Icons.favorite_border,
+                  color: _favoritesService.isFavorite(routeId) 
+                      ? Colors.red 
+                      : Colors.grey[600],
+                ),
+                iconSize: 20,
+                constraints: const BoxConstraints(
+                  minWidth: 32,
+                  minHeight: 32,
+                ),
+                padding: EdgeInsets.zero,
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.green,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
+                      width: 6,
+                      height: 6,
                       decoration: BoxDecoration(
-                        color: AppColors.accentPeach,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Express',
-                        style: AppTypography.labelSmall.copyWith(
-                          color: Colors.deepOrange[700],
-                          fontWeight: FontWeight.w600,
-                        ),
+                        color: Colors.white,
+                        shape: BoxShape.circle,
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight.withOpacity(0.3),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.directions_bus_rounded,
-                      color: AppColors.primary,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ETA: ${bus['eta']}',
-                          style: AppTypography.bodyMedium.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          '${bus['distance']} away',
-                          style: AppTypography.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: capacityColor.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.person,
-                          size: 14,
-                          color: capacityColor,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          bus['capacity'],
-                          style: AppTypography.labelSmall.copyWith(
-                            color: capacityColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const Divider(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Next Stop',
-                          style: AppTypography.labelSmall.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        Text(
-                          bus['nextStop'],
-                          style: AppTypography.bodyMedium.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  CustomButton.small(
-                    text: 'Track',
-                    onPressed: () {
-                      // Track this bus
-                    },
-                    prefixIcon: Icons.location_on,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Builds a card for a favorite route.
-  Widget _buildRouteCard(Map<String, dynamic> route) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    route['name'],
-                    style: AppTypography.titleMedium,
-                  ),
-                ),
-                const Icon(
-                  Icons.favorite,
-                  color: AppColors.accentPeach,
-                  size: 20,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Icon(
-                  Icons.location_on,
-                  size: 16,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    '${route['startPoint']} → ${route['endPoint']}',
-                    style: AppTypography.bodyMedium.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(
-                  Icons.access_time_filled,
-                  size: 16,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  route['duration'],
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const Spacer(),
-                ...List.generate(
-                  (route['busNumbers'] as List).length,
-                  (index) => Container(
-                    margin: const EdgeInsets.only(left: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '#${route['busNumbers'][index]}',
-                      style: AppTypography.labelSmall.copyWith(
-                        color: AppColors.primary,
+                    const SizedBox(width: 4),
+                    Text(
+                      'LIVE',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Route information
+          Row(
+            children: [
+              Icon(
+                Icons.trip_origin,
+                size: 16,
+                color: Colors.green,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  fromDestination,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(
+                Icons.location_on,
+                size: 16,
+                color: Colors.red,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  toDestination,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.access_time,
+                size: 16,
+                color: Colors.grey[600],
+              ),
+              const SizedBox(width: 4),
+              Text(
+                tripStartTime != null
+                    ? 'Started ${_formatTimeDifference(tripStartTime)}'
+                    : 'Active now',
+                style: AppTypography.bodySmall.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+              const Spacer(),
+              if (location != null) ...[
+                Icon(
+                  Icons.gps_fixed,
+                  size: 16,
+                  color: Colors.green,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Live GPS',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: Colors.green,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                // Directly navigate to live tracking for this specific bus
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => LiveBusTrackingScreen(
+                      busInfo: BusInfo.fromActiveTrip(
+                        busNumber: busNumber,
+                        routeId: trip['route_id'] as String,
+                        driverId: trip['driver_id'] as String,
+                        tripId: trip['id'] as String,
+                        isActive: true,
+                        lastLocation: location != null
+                            ? LatLng(
+                                (location['latitude'] as num).toDouble(),
+                                (location['longitude'] as num).toDouble(),
+                              )
+                            : null,
+                        lastUpdateTime: location != null
+                            ? DateTime.parse(location['timestamp'] as String)
+                            : DateTime.parse(trip['start_time'] as String),
+                        routeName: routeName,
+                        fromDestination: fromDestination,
+                        toDestination: toDestination,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: Icon(Icons.live_tv, size: 18),
+              label: Text(
+                'Track Live Location',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  // This would be connected to a real API in a production app
-  void _refreshBusData() {
-    // Simulate API call
-    if (mounted) {
-      setState(() {
-        // Update bus ETAs and distances
-        for (var bus in _nearbyBuses) {
-          final currentEta = bus['eta'].toString();
-          final currentDistance = bus['distance'].toString();
-
-          // Simulate movement
-          if (currentEta.contains('min')) {
-            final minutes = int.parse(currentEta.split(' ').first);
-            if (minutes > 1) {
-              bus['eta'] = '${minutes - 1} min';
-
-              // Also update distance
-              final distance = double.parse(currentDistance.split(' ').first);
-              bus['distance'] = '${(distance - 0.1).toStringAsFixed(1)} km';
-            } else {
-              bus['eta'] = 'Arriving';
-              bus['distance'] = 'At stop';
-            }
-          }
+  /// Builds the offline buses section
+  Widget _buildOfflineBusesSection() {
+    return Consumer<RealtimeService>(
+      builder: (context, realtimeService, child) {
+        if (_isLoadingOfflineBuses) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Loading buses...',
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          );
         }
-      });
+
+        // Show ALL buses: both offline routes and active driver trips that aren't live
+        final activeTripRouteIds = realtimeService.activeTrips.values
+            .map((trip) => trip['route_id'] as String?)
+            .where((id) => id != null)
+            .toSet();
+
+        // Get buses from active driver trips that aren't live
+        final activeOfflineTrips = _activeDriverTrips.where((driverTrip) {
+          final routeId = driverTrip['route_id'] as String?;
+          return routeId != null && !activeTripRouteIds.contains(routeId);
+        }).toList();
+
+        // Get all routes that don't have active driver trips
+        final offlineRoutes = _allBuses.where((route) {
+          final routeId = route['id'] as String?;
+          final hasActiveTrip = _activeDriverTrips.any((trip) => trip['route_id'] == routeId);
+          return routeId != null && !hasActiveTrip && !activeTripRouteIds.contains(routeId);
+        }).toList();
+
+        // Combine both types of offline buses
+        final allOfflineBuses = <Map<String, dynamic>>[];
+        
+        // Add active driver trips that are offline
+        for (final trip in activeOfflineTrips) {
+          allOfflineBuses.add({
+            'type': 'driver_trip',
+            'data': trip,
+            'route_id': trip['route_id'],
+            'status': 'active_offline', // Driver started trip but not broadcasting
+          });
+        }
+        
+        // Add routes without any driver trips
+        for (final route in offlineRoutes) {
+          allOfflineBuses.add({
+            'type': 'route',
+            'data': route,
+            'route_id': route['id'],
+            'status': 'inactive', // No driver assigned/started
+          });
+        }
+
+        if (allOfflineBuses.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.bus_alert_outlined,
+                  size: 48,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _activeDriverTrips.isEmpty 
+                      ? 'No active driver trips'
+                      : 'All active buses are currently live!',
+                  style: AppTypography.titleMedium.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _activeDriverTrips.isEmpty
+                      ? 'Drivers will appear here when they start trips'
+                      : 'Great! All active buses are live with passengers',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: allOfflineBuses.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final busItem = allOfflineBuses[index];
+            return _buildOfflineBusCard(busItem);
+          },
+        );
+      },
+    );
+  }
+
+  /// Builds a card for displaying offline bus information
+  Widget _buildOfflineBusCard(Map<String, dynamic> busItem) {
+    // Handle both types of bus items
+    final String status = busItem['status'] as String? ?? 'inactive';
+    final Map<String, dynamic> routeData;
+    final String routeId;
+    
+    if (status == 'active_offline') {
+      // This is a driver trip with route data nested
+      routeData = busItem['routes'] as Map<String, dynamic>? ?? {};
+      routeId = busItem['route_id'] as String? ?? '';
+    } else {
+      // This is a route without active driver trip
+      routeData = busItem;
+      routeId = busItem['id'] as String? ?? '';
+    }
+    
+    final String routeName = routeData['route_name'] as String? ?? 'Unknown Route';
+    final String fromDestination = routeData['start_location'] as String? ?? 'Unknown Start';
+    final String toDestination = routeData['end_location'] as String? ?? 'Unknown End';
+    final String? scheduleTime = routeData['schedule_time'] as String?;
+    
+    // Determine status display
+    final bool isActiveOffline = status == 'active_offline';
+    final String statusText = isActiveOffline ? 'OFFLINE' : 'INACTIVE';
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: Border.all(color: Colors.grey[200]!),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with route name, offline status, and favorite button
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  routeName,
+                  style: AppTypography.titleMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ),
+              const Spacer(),
+              // Favorite button
+              IconButton(
+                onPressed: () async {
+                  await _favoritesService.toggleFavorite(routeId);
+                  setState(() {}); // Refresh UI
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        _favoritesService.isFavorite(routeId) 
+                            ? 'Added to favorites' 
+                            : 'Removed from favorites'
+                      ),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                icon: Icon(
+                  _favoritesService.isFavorite(routeId) 
+                      ? Icons.favorite 
+                      : Icons.favorite_border,
+                  color: _favoritesService.isFavorite(routeId) 
+                      ? Colors.red 
+                      : Colors.grey[600],
+                ),
+                iconSize: 20,
+                constraints: const BoxConstraints(
+                  minWidth: 32,
+                  minHeight: 32,
+                ),
+                padding: EdgeInsets.zero,
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isActiveOffline ? Colors.orange[100] : Colors.grey[300],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: isActiveOffline ? Colors.orange[600] : Colors.grey[600],
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        color: isActiveOffline ? Colors.orange[700] : Colors.grey[700],
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Route information
+          Row(
+            children: [
+              Icon(
+                Icons.trip_origin,
+                size: 16,
+                color: Colors.grey[500],
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  fromDestination,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(
+                Icons.location_on,
+                size: 16,
+                color: Colors.grey[500],
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  toDestination,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.schedule,
+                size: 16,
+                color: Colors.grey[600],
+              ),
+              const SizedBox(width: 4),
+              Text(
+                scheduleTime != null 
+                    ? 'Scheduled: $scheduleTime'
+                    : 'Schedule not available',
+                style: AppTypography.bodySmall.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.gps_off,
+                size: 16,
+                color: Colors.grey[500],
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'No GPS',
+                style: AppTypography.bodySmall.copyWith(
+                  color: Colors.grey[500],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                // Show different info based on status
+                final String message = isActiveOffline 
+                    ? '$routeName is currently offline. Check back later for live tracking.'
+                    : '$routeName is not currently active. Check the schedule for next availability.';
+                    
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(message),
+                    backgroundColor: isActiveOffline ? Colors.orange : Colors.grey,
+                    duration: const Duration(seconds: 3),
+                    action: SnackBarAction(
+                      label: 'OK',
+                      textColor: Colors.white,
+                      onPressed: () {},
+                    ),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isActiveOffline ? Colors.orange[100] : Colors.grey[300],
+                foregroundColor: isActiveOffline ? Colors.orange[700] : Colors.grey[700],
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: Icon(Icons.schedule, size: 18),
+              label: Text(
+                isActiveOffline ? 'Currently Offline' : 'View Schedule',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Formats time difference in a human-readable way
+  String _formatTimeDifference(DateTime startTime) {
+    final now = DateTime.now();
+    final difference = now.difference(startTime);
+    
+    if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
     }
   }
 }

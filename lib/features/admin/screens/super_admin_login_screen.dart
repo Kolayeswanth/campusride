@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:campusride/core/theme/app_colors.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/services/auth_service.dart';
 
@@ -32,15 +31,15 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.loginSuperAdmin(
+      await authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
 
       if (!mounted) return;
 
-      if (authService.error == null && authService.userRole == 'super_admin') {
-        Navigator.pushReplacementNamed(context, '/admin/colleges');
+      if (authService.error == null && (authService.userRole == 'super_admin' || authService.userRole == 'admin')) {
+        Navigator.pushReplacementNamed(context, '/admin/dashboard');
       } else if (authService.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

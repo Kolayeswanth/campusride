@@ -108,3 +108,7 @@ class SearchController {
     isSearchingStartLocation = false;
   }
 }
+
+class LocationSearchController extends SearchController {
+  // Additional functionality specific to location search
+}

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/services/trip_service.dart';
-import '../../../shared/widgets/widgets.dart';
+import '../../../features/passenger/models/trip.dart';
 
 /// TripHistoryScreen shows a list of past trips for drivers
 class TripHistoryScreen extends StatelessWidget {
@@ -83,13 +83,13 @@ class TripHistoryScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  trip.routeName,
+                  trip.route.name,
                   style: AppTypography.titleMedium.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
-                  trip.formattedDate,
+                  trip.startTime.toString().split(' ')[0],
                   style: AppTypography.bodySmall.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -101,19 +101,21 @@ class TripHistoryScreen extends StatelessWidget {
             _buildInfoRow(
               icon: Icons.access_time,
               label: 'Start Time',
-              value: trip.formattedStartTime,
+              value: trip.startTime.toString().split(' ')[1],
             ),
             const SizedBox(height: 8),
             _buildInfoRow(
               icon: Icons.timer,
               label: 'Duration',
-              value: trip.duration,
+              value: trip.endTime != null 
+                  ? '${trip.endTime!.difference(trip.startTime).inMinutes} mins'
+                  : 'In progress',
             ),
             const SizedBox(height: 8),
             _buildInfoRow(
               icon: Icons.directions_bus,
               label: 'Bus ID',
-              value: trip.busId,
+              value: trip.bus.id,
             ),
           ],
         ),

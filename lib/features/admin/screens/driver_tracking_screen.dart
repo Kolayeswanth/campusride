@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:campusride/core/theme/app_colors.dart';
-import '../models/driver.dart';
 import '../models/driver_location.dart';
 import '../services/driver_location_service.dart';
-import 'dart:ui' as ui;
+import '../drivers/models/driver.dart';
+import '../drivers/services/driver_service.dart';
 
 class DriverTrackingScreen extends StatefulWidget {
-  final List<Driver> drivers;
-  const DriverTrackingScreen({Key? key, required this.drivers}) : super(key: key);
+  const DriverTrackingScreen({Key? key}) : super(key: key);
 
   @override
   State<DriverTrackingScreen> createState() => _DriverTrackingScreenState();
@@ -18,14 +17,58 @@ class DriverTrackingScreen extends StatefulWidget {
 class _DriverTrackingScreenState extends State<DriverTrackingScreen> {
   GoogleMapController? _mapController;
   final Map<String, Marker> _markers = {};
+  late List<Driver> _drivers;
   final Map<String, Set<Polyline>> _routes = {};
   bool _showList = false;
 
   @override
   void initState() {
     super.initState();
-    final ids = widget.drivers.map((d) => d.id).toList();
-    Future.microtask(() => context.read<DriverLocationService>().startTracking(ids));
+    _initTracking();
+  }
+  
+  Future<void> _initTracking() async {
+    try {
+      // Get all drivers from the service
+      final service = Provider.of<DriverService>(context, listen: false);
+      
+      // If no drivers are loaded yet, load them
+      if (service.drivers.isEmpty) {
+        // Just get all drivers - we don't have college context here
+        await service.getAllDrivers();
+      }
+      
+      // Update local driver list
+      setState(() {
+        _drivers = service.drivers;
+      });
+      
+      // Start tracking if we have drivers
+      if (_drivers.isNotEmpty) {
+        final ids = _drivers.map((d) => d.id).toList();
+        debugPrint('Starting to track ${ids.length} drivers: $ids');
+        Future.microtask(() => context.read<DriverLocationService>().startTracking(ids));
+      } else {
+        debugPrint('No drivers available to track.');
+        // Show a snackbar to inform the user
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No drivers available to track.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error initializing driver tracking: $e');
+      // Show error to the user
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to initialize tracking: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   @override
@@ -43,7 +86,7 @@ class _DriverTrackingScreenState extends State<DriverTrackingScreen> {
     _markers.clear();
     _routes.clear();
 
-    for (final driver in widget.drivers) {
+    for (final driver in _drivers) {
       final location = locations[driver.id];
       if (location != null) {
         // Update marker
@@ -100,7 +143,7 @@ class _DriverTrackingScreenState extends State<DriverTrackingScreen> {
           if (_showList) {
             return ListView(
               padding: const EdgeInsets.all(16),
-              children: widget.drivers.map((driver) {
+              children: _drivers.map((driver) {
                 final loc = locations[driver.id];
                 return Card(
                   child: ListTile(
@@ -123,20 +166,47 @@ class _DriverTrackingScreenState extends State<DriverTrackingScreen> {
             );
           }
 
-          return GoogleMap(
-            onMapCreated: _onMapCreated,
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(17.0, 78.0), // Default to Hyderabad
-              zoom: 12,
-            ),
-            markers: _markers.values.toSet(),
-            polylines: _routes.values.expand((polylines) => polylines).toSet(),
-            myLocationEnabled: true,
-            myLocationButtonEnabled: true,
-            zoomControlsEnabled: true,
-            mapToolbarEnabled: true,
-            compassEnabled: true,
-            trafficEnabled: true,
+          return Stack(
+            children: [
+              GoogleMap(
+                onMapCreated: _onMapCreated,
+                initialCameraPosition: const CameraPosition(
+                  target: LatLng(17.385044, 78.486671), // Central Hyderabad
+                  zoom: 14,
+                ),
+                markers: _markers.values.toSet(),
+                polylines: _routes.values.expand((polylines) => polylines).toSet(),
+                myLocationEnabled: true,
+                myLocationButtonEnabled: true,
+                zoomControlsEnabled: true,
+                mapToolbarEnabled: true,
+                compassEnabled: true,
+                trafficEnabled: true,
+              ),
+              if (service.isLoading)
+                const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              if (_markers.isEmpty && !service.isLoading)
+                Positioned(
+                  bottom: 50,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'No driver locations available',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           );
         },
       ),

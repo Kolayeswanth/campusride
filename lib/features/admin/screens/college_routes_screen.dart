@@ -50,12 +50,7 @@ class _CollegeRoutesScreenState extends State<CollegeRoutesScreen> {
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => RouteSelectionScreen(
-          collegeId: widget.collegeId,
-          driverId: driverId,
-          mapService: widget.mapService,
-          routeService: widget.routeService,
-        ),
+        builder: (context) => RouteSelectionScreen(),
       ),
     );
 
@@ -100,14 +95,17 @@ class _CollegeRoutesScreenState extends State<CollegeRoutesScreen> {
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 TextButton(
-                                  onPressed: () => _selectRoute(route.driverId),
+                                  onPressed: route.driverId != null 
+                                    ? () => _selectRoute(route.driverId!)
+                                    : null,
                                   child: const Text('Edit Route'),
                                 ),
                                 const SizedBox(width: 8),
                                 TextButton(
                                   onPressed: () async {
+                                    if (route.id == null) return;
                                     try {
-                                      await widget.routeService.deleteRoute(route.id);
+                                      await widget.routeService.deleteRoute(route.id!);
                                       _loadRoutes();
                                     } catch (e) {
                                       ScaffoldMessenger.of(context).showSnackBar(

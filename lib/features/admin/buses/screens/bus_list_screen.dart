@@ -91,7 +91,7 @@ class _BusListScreenState extends State<BusListScreen> {
                       : const CircleAvatar(
                           child: Icon(Icons.directions_bus),
                         ),
-                  title: Text(bus.vehicleId),
+                  title: Text(bus.vehicleId ?? bus.busNumber),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

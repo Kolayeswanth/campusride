@@ -18,6 +18,13 @@ CampusRide is a modern Flutter application that provides real-time tracking of c
 - Route visualization
 - Trip statistics
 
+### Database & Backend
+- Supabase database integration
+- Authentication with email/password and Google Sign-In
+- Real-time location updates
+- Route management system
+- Schema cache management utilities
+
 ## Technical Stack
 
 - **Frontend**: Flutter with Material Design 3
@@ -143,3 +150,13 @@ lib/
 - [ ] Favorite routes
 - [ ] Trip history
 - [ ] Notifications
+
+## Developer Documentation
+
+### Schema Management
+The app uses Supabase with proper schema management. Database schema files are located in:
+
+- `lib/core/data/public_schema.sql` - Main database schema
+- `lib/core/data/realtime_tables_schema.sql` - Realtime configuration schema
+
+For database troubleshooting, check the Flutter debug console for any schema-related errors.

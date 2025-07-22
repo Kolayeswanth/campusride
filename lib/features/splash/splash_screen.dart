@@ -71,9 +71,9 @@ class _SplashScreenState extends State<SplashScreen>
           if (!mounted) return;
           Navigator.of(context).pushReplacementNamed('/passenger_home');
         } else {
-          // User needs to select a role
+          // User needs role/college selection - let AuthWrapper handle it
           if (!mounted) return;
-          Navigator.of(context).pushReplacementNamed('/role_selection');
+          Navigator.of(context).pushReplacementNamed('/home');
         }
       } else {
         // User is not authenticated, show welcome screen

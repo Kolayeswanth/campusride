@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -30,17 +29,6 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Initialize GoogleSignIn with appropriate configuration
-  void _initGoogleSignIn() {
-    if (kIsWeb) {
-      _googleSignIn = GoogleSignIn(
-        clientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
-        scopes: ['email', 'profile'],
-      );
-    } else {
-      _googleSignIn = GoogleSignIn();
-    }
-  }
-  
   /// Initialize Google Sign In
   void _initGoogleSignIn() {
     _googleSignIn = GoogleSignIn(
@@ -73,8 +61,7 @@ class AuthService extends ChangeNotifier {
   
   /// Initialize and listen for auth state changes
   void _initAuthState() async {
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       // Get initial session
@@ -93,28 +80,55 @@ class AuthService extends ChangeNotifier {
         switch (event) {
           case AuthChangeEvent.signedIn:
           case AuthChangeEvent.tokenRefreshed:
-            _currentUser = session?.user;
-            if (_currentUser != null) {
-              await _fetchUserRole();
-              await _saveSession(session!);
+            final newUser = session?.user;
+            if (_currentUser?.id != newUser?.id) {
+              _currentUser = newUser;
+              if (_currentUser != null) {
+                await _fetchUserRole();
+                await _saveSession(session!);
+              }
             }
             break;
           case AuthChangeEvent.signedOut:
           case AuthChangeEvent.userDeleted:
-            _currentUser = null;
-            _userRole = null;
-            await _clearSession();
+            if (_currentUser != null || _userRole != null) {
+              _currentUser = null;
+              _userRole = null;
+              await _clearSession();
+            }
             break;
           default:
             break;
         }
-        _isLoading = false;
-        notifyListeners();
+        _setLoading(false);
       });
     } catch (e) {
-      _error = e.toString();
+      _setError(e.toString());
     } finally {
-      _isLoading = false;
+      _setLoading(false);
+    }
+  }
+
+  /// Set loading state only if it has changed
+  void _setLoading(bool loading) {
+    if (_isLoading != loading) {
+      _isLoading = loading;
+      notifyListeners();
+    }
+  }
+
+  /// Set error state only if it has changed
+  void _setError(String? error) {
+    if (_error != error) {
+      _error = error;
+      notifyListeners();
+    }
+  }
+
+  /// Set success message only if it has changed
+  void _setSuccessMessage(String? message) {
+    if (_successMessage != message) {
+      _successMessage = message;
       notifyListeners();
     }
   }
@@ -129,9 +143,44 @@ class AuthService extends ChangeNotifier {
   Future<void> _clearSession() async {
     await _prefs.remove('session');
     await _prefs.remove('refresh_token');
+    final userChanged = _currentUser != null;
+    final roleChanged = _userRole != null;
     _currentUser = null;
     _userRole = null;
-    notifyListeners();
+    if (userChanged || roleChanged) {
+      notifyListeners();
+    }
+  }
+  
+  /// Fetch user role from profiles table
+  Future<Map<String, dynamic>?> _fetchUserProfile() async {
+    if (_currentUser == null) return null;
+    
+    try {
+      // First try to get profile with college relationship
+      try {
+        final response = await _supabase
+            .from('profiles')
+            .select('*, colleges(*)')
+            .eq('id', _currentUser!.id)
+            .single();
+        
+        return response;
+      } catch (relationshipError) {
+        // If the relationship doesn't exist, fall back to basic profile data
+        print('College relationship not found, fetching basic profile: $relationshipError');
+        final response = await _supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', _currentUser!.id)
+            .single();
+        
+        return response;
+      }
+    } catch (e) {
+      print('Error fetching user profile: $e');
+      return null;
+    }
   }
   
   /// Fetch user role from profiles table
@@ -139,33 +188,38 @@ class AuthService extends ChangeNotifier {
     if (_currentUser == null) return;
     
     try {
-      final response = await _supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', _currentUser!.id)
-          .single();
-      
-      _userRole = response['role'] as String?;
-      _error = null;
+      final profile = await _fetchUserProfile();
+      final newRole = profile?['role'] as String?;
+      if (_userRole != newRole) {
+        _userRole = newRole;
+        _setError(null);
+        _setLoading(false);
+      }
     } catch (e) {
       // If the error is because no role exists, that's okay - we'll handle it in needsRoleSelection
-      _userRole = null;
-      _error = null;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (_userRole != null) {
+        _userRole = null;
+        _setError(null);
+        _setLoading(false);
+      }
     }
   }
   
   /// Check if user needs to select a role
   bool get needsRoleSelection => isAuthenticated && _userRole == null;
   
+  /// Check if user needs to select a college
+  Future<bool> needsCollegeSelection() async {
+    if (!isAuthenticated) return false;
+    final profile = await _fetchUserProfile();
+    return profile != null && profile['college_id'] == null;
+  }
+  
   /// Update user role
   Future<void> updateUserRole(String role) async {
     if (_currentUser == null) return;
     
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       print('Updating user role to: $role for user ID: ${_currentUser!.id}');
@@ -203,37 +257,41 @@ class AuthService extends ChangeNotifier {
               .eq('id', _currentUser!.id);
         }
         
-        _userRole = role;
-        _error = null;
+        // Update local state only if it changed
+        if (_userRole != role) {
+          _userRole = role;
+        }
+        _setError(null);
         print('User role updated successfully to: $role');
       } on SocketException catch (e) {
         print('Network error: $e');
-        _error = 'Network error: Please check your internet connection and try again.';
+        _setError('Network error: Please check your internet connection and try again.');
       } on AuthException catch (e) {
         print('Auth error: $e');
-        _error = 'Authentication error: ${e.message}';
+        _setError('Authentication error: ${e.message}');
       }
     } catch (e) {
       print('Error updating user role: $e');
-      _error = 'Failed to update user role: $e';
       
       // More detailed error logging
+      String errorMessage;
       if (e.toString().contains('host lookup') || e.toString().contains('SocketException')) {
-        _error = 'Network error: Unable to connect to the server. Please check your internet connection.';
+        errorMessage = 'Network error: Unable to connect to the server. Please check your internet connection.';
       } else if (e.toString().contains('AuthException')) {
-        _error = 'Authentication error: Your session may have expired. Please sign in again.';
+        errorMessage = 'Authentication error: Your session may have expired. Please sign in again.';
+      } else {
+        errorMessage = 'Failed to update user role: $e';
       }
+      _setError(errorMessage);
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
   /// Sign in with email and password
   Future<void> signInWithEmail(String email, String password) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       await _supabase.auth.signInWithPassword(
@@ -241,21 +299,18 @@ class AuthService extends ChangeNotifier {
         password: password,
       );
     } on AuthException catch (e) {
-      _error = e.message;
-      _isLoading = false;
-      notifyListeners();
+      _setError(e.message);
+      _setLoading(false);
     } catch (e) {
-      _error = 'An unexpected error occurred';
-      _isLoading = false;
-      notifyListeners();
+      _setError('An unexpected error occurred');
+      _setLoading(false);
     }
   }
   
   /// Sign in with Google
   Future<void> signInWithGoogle() async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       // Start Google Sign In flow
@@ -277,17 +332,15 @@ class AuthService extends ChangeNotifier {
       
       // Auth state change listener will handle the rest
     } catch (e) {
-      _error = 'Failed to sign in with Google: ${e.toString()}';
-      _isLoading = false;
-      notifyListeners();
+      _setError('Failed to sign in with Google: ${e.toString()}');
+      _setLoading(false);
     }
   }
   
   /// Register a new user
   Future<void> registerWithEmail(String email, String password, String name) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       print('Attempting to sign up user with email: $email');
@@ -306,77 +359,101 @@ class AuthService extends ChangeNotifier {
         try {
           // Second step: Insert into profiles table
           print('Attempting to create user profile record');
-          await _supabase.from('profiles').insert({
+          
+          // First, get the first available college ID
+          String? defaultCollegeId;
+          try {
+            final collegesResponse = await _supabase
+                .from('colleges')
+                .select('id')
+                .limit(1);
+            
+            if (collegesResponse.isNotEmpty) {
+              defaultCollegeId = collegesResponse[0]['id'].toString();
+              print('Using default college ID: $defaultCollegeId');
+            } else {
+              print('No colleges found, profile will be created without college_id');
+            }
+          } catch (collegeError) {
+            print('Error fetching colleges: $collegeError');
+          }
+          
+          final profileData = {
             'id': response.user!.id,
             'email': email,
-            'role': 'passenger', // Default role
+            'display_name': name,
+            'role': 'user', // Default role changed to 'user'
             'created_at': DateTime.now().toIso8601String(),
-          });
+            'updated_at': DateTime.now().toIso8601String(),
+          };
+          
+          // Only add college_id if we have one
+          if (defaultCollegeId != null) {
+            profileData['college_id'] = defaultCollegeId;
+          }
+          
+          await _supabase.from('profiles').insert(profileData);
           print('User profile created successfully');
           
-          // Set local user role
-          _userRole = 'passenger';
+          // Set local user role only if it changed
+          if (_userRole != 'user') {
+            _userRole = 'user';
+          }
         } catch (profileError) {
           print('Error creating user profile: $profileError');
           // If profile creation fails, we should log the specific error
           // but we don't need to fail the entire registration process
           // as the user is already authenticated
-          _error = 'Registration successful but profile setup failed: $profileError';
-          _isLoading = false;
-          notifyListeners();
+          _setError('Registration successful but profile setup failed: $profileError');
+          _setLoading(false);
+          return;
         }
 
       } else {
         print('Sign up response did not contain user object');
-        _error = 'Registration failed: Please try again';
+        _setError('Registration failed: Please try again');
       }
     } on AuthException catch (e) {
       print('Auth Exception during registration: ${e.message}');
-      _error = e.message;
+      _setError(e.message);
     } catch (e) {
       print('Unexpected error during registration: $e');
-      _error = 'An unexpected error occurred. Please try again.';
+      _setError('An unexpected error occurred. Please try again.');
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
   /// Reset password
   Future<bool> resetPassword(String email) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
+    _setLoading(true);
+    _setError(null);
     
     try {
       await _supabase.auth.resetPasswordForEmail(
         email,
         redirectTo: 'io.supabase.campusride://reset-callback/',
       );
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
       return true;
     } catch (e) {
-      _error = 'Failed to send password reset email';
-      _isLoading = false;
-      notifyListeners();
+      _setError('Failed to send password reset email');
+      _setLoading(false);
       return false;
     }
   }
   
   /// Sign out
   Future<void> signOut() async {
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       await _supabase.auth.signOut();
       await _clearSession();
     } catch (e) {
-      _error = e.toString();
+      _setError(e.toString());
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
@@ -387,8 +464,7 @@ class AuthService extends ChangeNotifier {
   }) async {
     if (_currentUser == null) return;
     
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
     
     try {
       await _supabase
@@ -401,12 +477,11 @@ class AuthService extends ChangeNotifier {
             'created_at': DateTime.now().toIso8601String(),
           });
       
-      _error = null;
+      _setError(null);
     } catch (e) {
-      _error = 'Failed to update driver information: $e';
+      _setError('Failed to update driver information: $e');
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
   
@@ -463,10 +538,10 @@ class AuthService extends ChangeNotifier {
         try {
           print('\nTesting profiles table write:');
           print('Attempting to upsert into profiles...');
-          final response = await _supabase.from('profiles').upsert({
+          await _supabase.from('profiles').upsert({
             'id': _currentUser!.id,
             'email': _currentUser!.email,
-            'role': 'passenger',
+            'role': 'user',
             'updated_at': DateTime.now().toIso8601String(),
           });
           print('Profile upsert success');
@@ -479,44 +554,457 @@ class AuthService extends ChangeNotifier {
     }
   }
   
-  /// Sign in as super admin
-  Future<void> loginSuperAdmin(String email, String password) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-    
+  /// Update user's college selection
+  Future<void> selectCollege(String collegeId) async {
+    if (_currentUser == null) {
+      _setError('User not authenticated');
+      return;
+    }
+
+    _setLoading(true);
+    _setError(null);
+
     try {
-      final response = await _supabase.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
+      print('Selecting college with ID: $collegeId for user: ${_currentUser!.id}');
       
-      if (response.user != null) {
-        // Check if user is a super admin
-        final profile = await _supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', response.user!.id)
-            .single();
-            
-        if (profile['role'] != 'super_admin') {
-          await _supabase.auth.signOut();
-          throw Exception('Unauthorized: Not a super admin');
-        }
-        
-        _currentUser = response.user;
-        _userRole = 'super_admin';
+      final updateResult = await _supabase
+          .from('profiles')
+          .update({
+            'college_id': collegeId,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', _currentUser!.id);
+
+      print('College update result: $updateResult');
+      
+      // Verify the update worked by fetching the profile
+      final updatedProfile = await _fetchUserProfile();
+      print('Updated profile after college selection: $updatedProfile');
+      
+      if (updatedProfile != null && updatedProfile['college_id'] == collegeId) {
+        _setError(null);
+        _setSuccessMessage('College selected successfully');
+        print('College selection verified successfully');
+      } else {
+        throw Exception('College selection was not saved properly');
       }
-    } on AuthException catch (e) {
-      _error = e.message;
     } catch (e) {
-      _error = e.toString();
+      print('Error selecting college: $e');
+      _setError('Failed to select college: $e');
     } finally {
-      _isLoading = false;
+      _setLoading(false);
+    }
+  }
+
+  /// Create initial profile for new user
+  Future<void> createProfile({
+    required String displayName,
+    required String collegeId,
+    String? phone,
+    String? photoUrl,
+  }) async {
+    if (_currentUser == null) {
+      _error = 'User not authenticated';
+      notifyListeners();
+      return;
+    }
+
+    _setLoading(true);
+    _setError(null);
+
+    try {
+      await _supabase.from('profiles').insert({
+        'id': _currentUser!.id,
+        'email': _currentUser!.email!,
+        'display_name': displayName,
+        'college_id': collegeId,
+        'photo_url': photoUrl,
+        'role': 'user',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      if (_userRole != 'user') {
+        _userRole = 'user';
+      }
+      _setError(null);
+      _setSuccessMessage('Profile created successfully');
+    } catch (e) {
+      print('Error creating profile: $e');
+      _setError('Failed to create profile: $e');
+    } finally {
+      _setLoading(false);
       notifyListeners();
     }
   }
+
+  /// Submit driver request (simplified - only license and experience)
+  Future<void> submitDriverRequest(Map<String, dynamic> requestData) async {
+    if (_currentUser == null) {
+      _error = 'User not authenticated';
+      _setLoading(false);
+      return;
+    }
+
+    _setLoading(true);
+    _setError(null);
+
+    try {
+      // Get user's college ID
+      final profile = await _fetchUserProfile();
+      print('Current user profile for driver request: $profile');
+      
+      if (profile == null || profile['college_id'] == null) {
+        print('Profile is null or missing college_id. Profile: $profile');
+        _setError('Please select your college first before applying to become a driver. Go to your profile to update your college information.');
+        _setLoading(false);
+        return;
+      }
+
+      print('Submitting simplified driver request with college_id: ${profile['college_id']}');
+
+      await _supabase.from('driver_requests').insert({
+        'user_id': _currentUser!.id,
+        'college_id': profile['college_id'],
+        'license_number': requestData['license_number'],
+        'driving_experience_years': requestData['driving_experience_years'],
+        'status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      _error = null;
+      _successMessage = 'Driver request submitted successfully. You will be notified once approved.';
+    } catch (e) {
+      print('Error submitting driver request: $e');
+      _setError('Failed to submit driver request: $e');
+      throw e;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  /// Check if user has pending driver request
+  Future<bool> hasPendingDriverRequest() async {
+    if (_currentUser == null) return false;
+
+    try {
+      final response = await _supabase
+          .from('driver_requests')
+          .select('id')
+          .eq('user_id', _currentUser!.id)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+      return response != null;
+    } catch (e) {
+      print('Error checking driver request: $e');
+      return false;
+    }
+  }
+
+  /// Get user's driver request status
+  Future<String?> getDriverRequestStatus() async {
+    if (_currentUser == null) return null;
+
+    try {
+      final response = await _supabase
+          .from('driver_requests')
+          .select('status')
+          .eq('user_id', _currentUser!.id)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      return response?['status'] as String?;
+    } catch (e) {
+      print('Error getting driver request status: $e');
+      return null;
+    }
+  }
+
+  /// Get all driver requests (admin only)
+  Future<List<Map<String, dynamic>>> getAllDriverRequests() async {
+    if (_currentUser == null || (_userRole != 'admin' && _userRole != 'super_admin')) {
+      throw Exception('Unauthorized access');
+    }
+
+    try {
+      // Get driver requests
+      final requestsResponse = await _supabase
+          .from('driver_requests')
+          .select('*')
+          .order('created_at', ascending: false);
+
+      final requests = List<Map<String, dynamic>>.from(requestsResponse);
+      
+      // For each request, fetch the associated profile and college data
+      for (final request in requests) {
+        // Fetch user profile
+        try {
+          final profileResponse = await _supabase
+              .from('profiles')
+              .select('id, email, display_name')
+              .eq('id', request['user_id'])
+              .single();
+          request['profiles'] = profileResponse;
+        } catch (e) {
+          print('Could not fetch profile for user ${request['user_id']}: $e');
+          request['profiles'] = null;
+        }
+        
+        // Fetch college if college_id exists
+        if (request['college_id'] != null) {
+          try {
+            final collegeResponse = await _supabase
+                .from('colleges')
+                .select('id, name')
+                .eq('id', request['college_id'])
+                .single();
+            request['colleges'] = collegeResponse;
+          } catch (e) {
+            print('Could not fetch college for id ${request['college_id']}: $e');
+            request['colleges'] = null;
+          }
+        } else {
+          request['colleges'] = null;
+        }
+      }
+
+      return requests;
+    } catch (e) {
+      print('Error fetching driver requests: $e');
+      throw Exception('Failed to fetch driver requests: $e');
+    }
+  }
+
+  /// Handle driver request approval/rejection (admin only)
+  Future<void> handleDriverRequest(String requestId, String action) async {
+    if (_currentUser == null || (_userRole != 'admin' && _userRole != 'super_admin')) {
+      throw Exception('Unauthorized access');
+    }
+
+    if (action != 'approved' && action != 'rejected') {
+      throw Exception('Invalid action. Must be "approved" or "rejected"');
+    }
+
+    try {
+      // Update the driver request status
+      await _supabase
+          .from('driver_requests')
+          .update({
+            'status': action,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', requestId);
+
+      // If approved, update the user's role to driver
+      if (action == 'approved') {
+        final request = await _supabase
+            .from('driver_requests')
+            .select('user_id')
+            .eq('id', requestId)
+            .single();
+
+        await _supabase
+            .from('profiles')
+            .update({
+              'role': 'driver',
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', request['user_id']);
+      }
+    } catch (e) {
+      print('Error handling driver request: $e');
+      throw Exception('Failed to ${action.replaceAll('ed', '')} driver request: $e');
+    }
+  }
+
+  /// Fetch drivers by college (admin only)
+  Future<List<Map<String, dynamic>>> getDriversByCollege(String collegeId) async {
+    if (_currentUser == null || (_userRole != 'admin' && _userRole != 'super_admin')) {
+      throw Exception('Unauthorized access');
+    }
+
+    try {
+      print('Fetching drivers for college: $collegeId');
+      
+      final driversResponse = await _supabase
+          .from('drivers')
+          .select('*')
+          .eq('college_id', collegeId)
+          .order('approved_at', ascending: false);
+
+      final drivers = List<Map<String, dynamic>>.from(driversResponse);
+      
+      // For each driver, fetch the associated profile data
+      for (final driver in drivers) {
+        try {
+          final profileResponse = await _supabase
+              .from('profiles')
+              .select('id, email, display_name')
+              .eq('id', driver['user_id'])
+              .single();
+          driver['profiles'] = profileResponse;
+        } catch (e) {
+          print('Could not fetch profile for driver ${driver['user_id']}: $e');
+          driver['profiles'] = null;
+        }
+      }
+
+      return drivers;
+    } catch (e) {
+      print('Error fetching drivers: $e');
+      throw Exception('Failed to fetch drivers: $e');
+    }
+  }
+
+  /// Get all drivers (admin only)
+  Future<List<Map<String, dynamic>>> getAllDrivers() async {
+    if (_currentUser == null || (_userRole != 'admin' && _userRole != 'super_admin')) {
+      throw Exception('Unauthorized access');
+    }
+
+    try {
+      print('Fetching all drivers');
+      
+      final driversResponse = await _supabase
+          .from('drivers')
+          .select('*')
+          .order('approved_at', ascending: false);
+
+      final drivers = List<Map<String, dynamic>>.from(driversResponse);
+      
+      // For each driver, fetch the associated profile and college data
+      for (final driver in drivers) {
+        // Fetch user profile
+        try {
+          final profileResponse = await _supabase
+              .from('profiles')
+              .select('id, email, display_name')
+              .eq('id', driver['user_id'])
+              .single();
+          driver['profiles'] = profileResponse;
+        } catch (e) {
+          print('Could not fetch profile for driver ${driver['user_id']}: $e');
+          driver['profiles'] = null;
+        }
+        
+        // Fetch college
+        try {
+          final collegeResponse = await _supabase
+              .from('colleges')
+              .select('id, name, code')
+              .eq('id', driver['college_id'])
+              .single();
+          driver['colleges'] = collegeResponse;
+        } catch (e) {
+          print('Could not fetch college for driver ${driver['user_id']}: $e');
+          driver['colleges'] = null;
+        }
+      }
+
+      return drivers;
+    } catch (e) {
+      print('Error fetching all drivers: $e');
+      throw Exception('Failed to fetch all drivers: $e');
+    }
+  }
+
+  /// Update driver status (admin only)
+  Future<void> updateDriverStatus(String driverId, bool isActive) async {
+    if (_currentUser == null || (_userRole != 'admin' && _userRole != 'super_admin')) {
+      throw Exception('Unauthorized access');
+    }
+
+    try {
+      // First get the driver's user_id
+      final driverResponse = await _supabase
+          .from('drivers')
+          .select('user_id')
+          .eq('id', driverId)
+          .single();
+      
+      final userId = driverResponse['user_id'] as String;
+
+      // Update driver status
+      await _supabase
+          .from('drivers')
+          .update({
+            'is_active': isActive,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', driverId);
+
+      // If deactivating driver, change their role to 'user'
+      // If activating driver, change their role to 'driver'
+      await _supabase
+          .from('profiles')
+          .update({
+            'role': isActive ? 'driver' : 'user',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', userId);
+      
+      print('Driver status updated successfully: ${isActive ? 'activated' : 'deactivated'}');
+      print('User role updated to: ${isActive ? 'driver' : 'user'}');
+    } catch (e) {
+      print('Error updating driver status: $e');
+      throw Exception('Failed to update driver status: $e');
+    }
+  }
+
+  // Keep the old method signature for backward compatibility
+  Future<void> submitDriverRequestOld({
+    required String licenseNumber,
+    required String vehicleModel,
+    required String vehicleNumber,
+    String? requestMessage,
+  }) async {
+    return submitDriverRequest({
+      'license_number': licenseNumber,
+      'vehicle_make': '',
+      'vehicle_model': vehicleModel,
+      'vehicle_year': DateTime.now().year,
+      'vehicle_plate_number': vehicleNumber,
+      'driving_experience_years': 1,
+      'reason': requestMessage ?? '',
+    });
+  }
   
+  /// Check if user has selected a college, if not prompt for selection
+  Future<bool> ensureCollegeSelected() async {
+    if (_currentUser == null) return false;
+    
+    final profile = await _fetchUserProfile();
+    if (profile != null && profile['college_id'] != null) {
+      return true; // College already selected
+    }
+    
+    // College not selected, return false to prompt user
+    return false;
+  }
+
+  /// Get current user's profile data
+  Future<Map<String, dynamic>?> getCurrentUserProfile() async {
+    return await _fetchUserProfile();
+  }
+
+  /// Get available colleges for selection
+  Future<List<Map<String, dynamic>>> getAvailableColleges() async {
+    try {
+      final response = await _supabase
+          .from('colleges')
+          .select('id, name, code')
+          .order('name');
+      
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('Error fetching colleges: $e');
+      return [];
+    }
+  }
+
   @override
   void dispose() {
     _authSubscription?.cancel();

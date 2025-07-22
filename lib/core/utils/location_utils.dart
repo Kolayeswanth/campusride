@@ -20,7 +20,7 @@ class LocationUtils {
   /// Get the current position of the device.
   static Future<Position> getCurrentPosition({
     LocationAccuracy accuracy = LocationAccuracy.high,
-    int timeLimit = 10000,
+    int timeLimit = 15000,
     bool forceAndroidLocationManager = false,
   }) async {
     // Check if location service is enabled

@@ -31,6 +31,7 @@ class DriverLocationService {
 
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 15), // Add proper timeout
       );
     } catch (e) {
       print('Error getting location: $e');
@@ -77,11 +78,14 @@ class DriverLocationService {
       final orsApiKey = dotenv.env['ORS_API_KEY'] ??
           '5b3ce3597851110001cf6248a0ac0e4cb1ac489fa0857d1c6fc7203e';
 
+      final uri = Uri.parse(
+          'https://api.openrouteservice.org/v2/directions/driving-car/geojson').replace(
+        queryParameters: {'api_key': orsApiKey},
+      );
+
       final response = await http.post(
-          Uri.parse(
-              'https://api.openrouteservice.org/v2/directions/driving-car/geojson'),
+          uri,
           headers: {
-            'Authorization': orsApiKey,
             'Content-Type': 'application/json; charset=utf-8',
             'Accept': 'application/json, application/geo+json'
           },

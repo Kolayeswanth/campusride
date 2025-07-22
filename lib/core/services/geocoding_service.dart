@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../utils/logger_util.dart';
-import '../constants/map_constants.dart';
 
 class GeocodingService extends ChangeNotifier {
   final String? _apiKey;
