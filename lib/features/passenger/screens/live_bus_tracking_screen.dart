@@ -25,16 +25,12 @@ class LiveBusTrackingScreen extends StatefulWidget {
 
 class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with TickerProviderStateMixin {
   MaplibreMapController? _mapController;
-  StreamSubscription? _locationSubscription;
   Timer? _updateTimer;
   final OlaMapsService _olaMapsService = OlaMapsService();
   
-  latlong2.LatLng? _currentUserLocation;
   latlong2.LatLng? _currentBusLocation;
   bool _isLoadingLocation = true;
   bool _isFollowingBus = true;
-  String? _estimatedArrival;
-  double? _distanceToUser;
   
   // Route information
   BusRoute? _routeInfo;
@@ -107,34 +103,13 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   }
 
   Future<void> _initializeTracking() async {
-    await _getCurrentLocation();
+    // Skip user location - just focus on driver location
+    setState(() => _isLoadingLocation = false);
     _startListeningToBusUpdates();
     _startPeriodicUpdates();
   }
 
-  Future<void> _getCurrentLocation() async {
-    try {
-      final location = await OlaLocationService.getCurrentLocation();
-      
-      if (location != null) {
-        setState(() {
-          _currentUserLocation = location;
-          _isLoadingLocation = false;
-        });
-
-        // Start listening to location changes using Ola Maps enhanced tracking
-        _locationSubscription = OlaLocationService.getLocationStream().listen((location) {
-          setState(() {
-            _currentUserLocation = location;
-          });
-          _updateDistanceAndETA();
-        });
-      }
-    } catch (e) {
-      
-      setState(() => _isLoadingLocation = false);
-    }
-  }
+  // Removed _getCurrentLocation() method as we don't need user location permission
 
   void _startListeningToBusUpdates() {
     final realtimeService = Provider.of<RealtimeService>(context, listen: false);
@@ -202,24 +177,8 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   }
 
   void _updateDistanceAndETA() async {
-    if (_currentUserLocation != null && _currentBusLocation != null) {
-      final distance = latlong2.Distance().as(
-        latlong2.LengthUnit.Meter,
-        _currentUserLocation!,
-        _currentBusLocation!,
-      );
-      
-      // Use Ola Maps for enhanced ETA calculation with traffic data
-      final eta = await OlaLocationService.calculateETAWithTraffic(
-        origin: _currentUserLocation!,
-        destination: _currentBusLocation!,
-      );
-      
-      setState(() {
-        _distanceToUser = distance;
-        _estimatedArrival = eta;
-      });
-    }
+    // No longer needed since we don't track user location
+    // This method is kept for compatibility but does nothing
   }
 
   void _centerMapOnBus() {
@@ -234,47 +193,13 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   }
 
   void _centerMapOnUser() {
-    if (_mapController != null && _currentUserLocation != null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(_currentUserLocation!.latitude, _currentUserLocation!.longitude),
-          16.0,
-        ),
-      );
-    }
+    // User location not available - center on bus instead
+    _centerMapOnBus();
   }
 
   void _showBothLocations() {
-    if (_mapController != null && 
-        _currentUserLocation != null && 
-        _currentBusLocation != null) {
-      
-      final userLat = _currentUserLocation!.latitude;
-      final userLng = _currentUserLocation!.longitude;
-      final busLat = _currentBusLocation!.latitude;
-      final busLng = _currentBusLocation!.longitude;
-      
-      final bounds = LatLngBounds(
-        southwest: LatLng(
-          userLat < busLat ? userLat : busLat,
-          userLng < busLng ? userLng : busLng,
-        ),
-        northeast: LatLng(
-          userLat > busLat ? userLat : busLat,
-          userLng > busLng ? userLng : busLng,
-        ),
-      );
-      
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLngBounds(
-          bounds,
-          top: 100,
-          left: 100,
-          bottom: 100,
-          right: 100,
-        ),
-      );
-    }
+    // Since we only have bus location, just center on bus
+    _centerMapOnBus();
   }
 
   @override
@@ -370,8 +295,8 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
       },
       onStyleLoadedCallback: _onStyleLoaded,
       initialCameraPosition: CameraPosition(
-        target: _currentUserLocation != null
-          ? LatLng(_currentUserLocation!.latitude, _currentUserLocation!.longitude)
+        target: _currentBusLocation != null
+          ? LatLng(_currentBusLocation!.latitude, _currentBusLocation!.longitude)
           : LatLng(12.9716, 77.5946), // Default to Bangalore
         zoom: 14.0,
       ),
@@ -594,22 +519,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
       // Clear existing circles (but not lines)
       await _mapController!.clearCircles();
       
-      // Add user location marker (blue)
-      if (_currentUserLocation != null) {
-        await _mapController!.addCircle(
-          CircleOptions(
-            geometry: LatLng(_currentUserLocation!.latitude, _currentUserLocation!.longitude),
-            circleRadius: 8.0,
-            circleColor: "#2196F3", // Blue for user
-            circleStrokeColor: "#FFFFFF",
-            circleStrokeWidth: 2.0,
-          ),
-        );
-        
-        print('User location marker added');
-      } else {
-        print('User location not available for marker');
-      }
+      // User location marker removed - we only show driver location
 
       // Add bus location marker (large green with pulse effect)
       if (_currentBusLocation != null) {
@@ -735,16 +645,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
                     ),
                   ),
                 ),
-                if (_estimatedArrival != null) ...[
-                  SizedBox(height: 4),
-                  Text(
-                    'ETA: $_estimatedArrival',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
+                // ETA removed since we don't track user location
               ],
             ),
           ],
@@ -810,11 +711,9 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _buildInfoItem(
-              icon: Icons.location_on,
-              label: 'Distance',
-              value: _distanceToUser != null 
-                ? '${(_distanceToUser! / 1000).toStringAsFixed(1)} km'
-                : '--',
+              icon: Icons.directions_bus,
+              label: 'Bus',
+              value: widget.busInfo.busNumber ?? 'N/A',
             ),
             
             Container(
@@ -824,9 +723,9 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
             ),
             
             _buildInfoItem(
-              icon: Icons.access_time,
-              label: 'ETA',
-              value: _estimatedArrival ?? '--',
+              icon: Icons.route,
+              label: 'Route',
+              value: _routeInfo?.name ?? 'Loading...',
             ),
             
             Container(
@@ -838,7 +737,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
             _buildInfoItem(
               icon: Icons.speed,
               label: 'Status',
-              value: widget.busInfo.isActive ? 'Active' : 'Inactive',
+              value: widget.busInfo.isActive ? 'Live' : 'Inactive',
             ),
           ],
         ),
@@ -894,7 +793,6 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
     }
     
     _pulseController.dispose();
-    _locationSubscription?.cancel();
     _updateTimer?.cancel();
     _mapController?.dispose();
     super.dispose();

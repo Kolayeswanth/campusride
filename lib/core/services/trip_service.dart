@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong2;
 import 'package:http/http.dart' as http;
 import 'geocoding_service.dart';
+import 'ios_location_service.dart';
 import '../constants/map_constants.dart';
 
 class DriverTrip {
@@ -1088,17 +1089,24 @@ class TripService with ChangeNotifier {
     }
 
     try {
-      // Check location permissions
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final requested = await Geolocator.requestPermission();
-        if (requested == LocationPermission.denied) {
-          throw Exception('Location permissions are denied and are required for live tracking');
+      // Use iOS-specific location service for better compatibility
+      bool hasPermission = false;
+      try {
+        hasPermission = await IOSLocationService.requestLocationPermission(background: true);
+      } catch (e) {
+        print('Error with iOS location service, falling back to regular permission: $e');
+        // Fallback to regular permission check
+        final permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          final requested = await Geolocator.requestPermission();
+          hasPermission = requested == LocationPermission.always || requested == LocationPermission.whileInUse;
+        } else {
+          hasPermission = permission == LocationPermission.always || permission == LocationPermission.whileInUse;
         }
       }
-
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception('Location permissions are permanently denied. Please enable them in settings.');
+      
+      if (!hasPermission) {
+        throw Exception('Location permissions are required for live tracking. Please enable location access in Settings.');
       }
 
       _isLiveLocationSharing = true;
