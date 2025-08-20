@@ -1,17 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'ios_location_service.dart';
 
 class OlaLocationService {
   static const String _baseUrl = 'https://api.olamaps.io';
   static const String _apiKey = 'u8bxvlb9ubgP2wKgJyxEY2ya1hYNcvyxFDCpA85y';
   
-  /// Get current location using device GPS
+  /// Get current location using device GPS with iOS compatibility
   static Future<LatLng?> getCurrentLocation() async {
     try {
-      // Check location permissions
+      // Use iOS-specific location service for better compatibility
+      if (Platform.isIOS) {
+        return await IOSLocationService.getCurrentLocation();
+      }
+      
+      // Android/other platforms
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -39,8 +46,12 @@ class OlaLocationService {
     }
   }
 
-  /// Get location stream for real-time tracking
+  /// Get location stream for real-time tracking with iOS compatibility
   static Stream<LatLng> getLocationStream() {
+    if (Platform.isIOS) {
+      return IOSLocationService.getLocationStream();
+    }
+    
     return Geolocator.getPositionStream(
       locationSettings: LocationSettings(
         accuracy: LocationAccuracy.high,

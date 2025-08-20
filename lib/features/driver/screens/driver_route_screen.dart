@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -10,6 +11,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../../core/services/trip_service.dart';
 import '../../../core/services/ola_maps_service.dart';
+import '../../../core/services/ios_location_service.dart';
 import '../../../core/theme/app_colors.dart';
 
 class DriverRouteScreen extends StatefulWidget {
@@ -1246,92 +1248,119 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
 
   Widget _buildPermissionRequestCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        border: Border.all(color: Colors.orange.shade200),
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.location_disabled,
-            size: 48,
-            color: Colors.orange.shade600,
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.my_location,
+              size: 40,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Enable Location Services',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
           Text(
-            'Location Permission Required',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.orange.shade800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'To start a ride and track your location, CampusRide needs access to your device location.',
+            'To provide real-time tracking to passengers, we need access to your location while driving.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14,
-              color: Colors.orange.shade700,
+              fontSize: 16,
+              color: Colors.grey[600],
+              height: 1.4,
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _requestLocationPermission,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Try Again'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _openAppSettings,
-                  icon: const Icon(Icons.settings),
-                  label: const Text('Settings'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.orange.shade700,
-                    side: BorderSide(color: Colors.orange.shade300),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.orange.shade100,
+              color: Colors.blue.shade50,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: Colors.orange.shade600,
-                ),
-                const SizedBox(width: 8),
+                Icon(Icons.security, size: 18, color: Colors.blue.shade700),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Go to Settings > Apps > CampusRide > Permissions > Location',
+                    'Your location is only shared during active trips',
                     style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.orange.shade600,
+                      fontSize: 13,
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _requestLocationPermission,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text(
+                      'Allow Location Access',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: _openAppSettings,
+            child: Text(
+              'Open Settings Manually',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
             ),
           ),
         ],
@@ -1448,14 +1477,46 @@ class _DriverRouteScreenState extends State<DriverRouteScreen> {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: _isLoading ? null : () async {
-                // Check permission first
-                final status = await Permission.location.status;
-                if (status.isDenied || status.isPermanentlyDenied) {
+                try {
+                  // Use iOS-specific location service for better compatibility
+                  if (Platform.isIOS) {
+                    final hasPermission = await IOSLocationService.requestLocationPermission(background: true);
+                    if (hasPermission) {
+                      _startRide();
+                    } else {
+                      setState(() {
+                        _locationPermissionDenied = true;
+                      });
+                    }
+                  } else {
+                    // Android permission handling
+                    final status = await Permission.location.status;
+                    if (status.isDenied) {
+                      final requested = await Permission.location.request();
+                      if (requested.isGranted) {
+                        _startRide();
+                      } else {
+                        setState(() {
+                          _locationPermissionDenied = true;
+                        });
+                      }
+                    } else if (status.isPermanentlyDenied) {
+                      setState(() {
+                        _locationPermissionDenied = true;
+                      });
+                    } else if (status.isGranted) {
+                      _startRide();
+                    } else {
+                      setState(() {
+                        _locationPermissionDenied = true;
+                      });
+                    }
+                  }
+                } catch (e) {
+                  print('Error requesting location permission: $e');
                   setState(() {
                     _locationPermissionDenied = true;
                   });
-                } else {
-                  _startRide();
                 }
               },
               icon: const Icon(Icons.play_arrow),

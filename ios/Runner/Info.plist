@@ -24,12 +24,43 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	
+	<!-- Location Permissions for iOS -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs access to location when open to show your position on the map.</string>
+	<string>CampusRide needs location access to show your position on the map and help you track buses.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>CampusRide needs location access to provide real-time bus tracking for passengers. For drivers, this enables live location sharing during trips.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>This app needs access to location when in the background to track driver positions.</string>
+	<string>CampusRide needs background location access for drivers to share their live location with passengers during bus trips.</string>
+	
+	<!-- Background Modes for Location -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>background-fetch</string>
+		<string>background-processing</string>
+	</array>
+	
+	<!-- Camera Permission (for future features) -->
+	<key>NSCameraUsageDescription</key>
+	<string>CampusRide may need camera access for profile pictures and QR code scanning.</string>
+	
+	<!-- Photo Library Permission -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CampusRide needs photo library access to let you select profile pictures.</string>
+	
+	<!-- Network Usage -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	
+	<!-- Flutter Configuration -->
 	<key>io.flutter.embedded_views_preview</key>
 	<true/>
+	
+	<!-- UI Configuration -->
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -47,17 +78,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	
+	<!-- Performance Optimizations -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-	<key>io.flutter.embedded_views_preview</key>
-	<true/>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs access to location when open to show your position on the map.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>This app needs access to location when in the background to track driver positions.</string>
-	<key>io.flutter.embedded_views_preview</key>
 	<true/>
 </dict>
 </plist>
