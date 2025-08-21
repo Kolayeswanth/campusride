@@ -120,7 +120,10 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
     // Add listener for location updates
     realtimeService.addListener(_onBusLocationUpdate);
     
+    print('🚌 Started listening to bus updates for trip: ${widget.busInfo.tripId ?? widget.busInfo.busId}');
     
+    // Also check for existing location data immediately
+    _onBusLocationUpdate();
   }
 
   void _onBusLocationUpdate() {
@@ -128,17 +131,21 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
     
     final tripId = widget.busInfo.tripId ?? widget.busInfo.busId;
     
+    print('🔍 Checking for location updates for trip: $tripId');
     
     if (tripId.isNotEmpty) {
       final location = realtimeService.driverLocations[tripId];
       
+      print('📍 Location data for trip $tripId: $location');
       
       if (location != null) {
+        final timestamp = location['timestamp'] as String?;
+        final latitude = (location['latitude'] as num).toDouble();
+        final longitude = (location['longitude'] as num).toDouble();
         
-        final newLocation = latlong2.LatLng(
-          (location['latitude'] as num).toDouble(),
-          (location['longitude'] as num).toDouble(),
-        );
+        print('🚌 New bus location: $latitude, $longitude at $timestamp');
+        
+        final newLocation = latlong2.LatLng(latitude, longitude);
         
         setState(() {
           _currentBusLocation = newLocation;
@@ -151,10 +158,11 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
           _centerMapOnBus();
         }
       } else {
-        
+        print('⚠️ No location data found for trip: $tripId');
+        print('📊 Available driver locations: ${realtimeService.driverLocations.keys.toList()}');
       }
     } else {
-      
+      print('❌ Trip ID is empty');
     }
   }
 
@@ -167,13 +175,41 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
   void _updateBusLocationOnMap(latlong2.LatLng location) async {
     if (_mapController != null) {
       
-      // Update the bus location and refresh markers
+      // Update the bus location smoothly
       setState(() {
         _currentBusLocation = location;
       });
-      // Re-setup markers to reflect new bus location
-      await _setupMapMarkers();
+      
+      // Only re-setup markers if location has changed significantly (to avoid excessive updates)
+      if (_shouldUpdateMarkers(location)) {
+        await _setupMapMarkers();
+      }
     }
+  }
+
+  bool _shouldUpdateMarkers(latlong2.LatLng newLocation) {
+    if (_currentBusLocation == null) return true;
+    
+    // Calculate distance between old and new location
+    final distance = _calculateDistance(_currentBusLocation!, newLocation);
+    
+    // Only update markers if bus moved more than 10 meters
+    return distance > 10.0;
+  }
+
+  double _calculateDistance(latlong2.LatLng point1, latlong2.LatLng point2) {
+    const double earthRadius = 6371000; // Earth's radius in meters
+    final double lat1Rad = point1.latitude * (3.14159265359 / 180);
+    final double lat2Rad = point2.latitude * (3.14159265359 / 180);
+    final double deltaLatRad = (point2.latitude - point1.latitude) * (3.14159265359 / 180);
+    final double deltaLngRad = (point2.longitude - point1.longitude) * (3.14159265359 / 180);
+
+    final double a = (deltaLatRad / 2).sin() * (deltaLatRad / 2).sin() +
+        lat1Rad.cos() * lat2Rad.cos() *
+        (deltaLngRad / 2).sin() * (deltaLngRad / 2).sin();
+    final double c = 2 * (a.sqrt()).asin();
+
+    return earthRadius * c;
   }
 
   void _updateDistanceAndETA() async {
@@ -188,6 +224,7 @@ class _LiveBusTrackingScreenState extends State<LiveBusTrackingScreen> with Tick
           LatLng(_currentBusLocation!.latitude, _currentBusLocation!.longitude),
           16.0,
         ),
+        duration: Duration(milliseconds: 1000), // Smooth 1-second animation
       );
     }
   }

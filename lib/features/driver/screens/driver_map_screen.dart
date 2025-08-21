@@ -357,13 +357,22 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
     final position = _locationService.currentPosition!;
 
     try {
-      await tripService.updateBusLocation(
-        widget.busId,
-        position.latitude,
-        position.longitude,
-        position.heading,
-        position.speed,
-      );
+      // Use the correct method that updates driver_trip_locations table
+      // This ensures real-time updates work properly for passengers
+      if (tripService.currentTrip != null) {
+        // The trip service automatically handles location updates when live sharing is active
+        // No need to manually update here as _storeTripLocation is called automatically
+        print('Location update handled by trip service live sharing');
+      } else {
+        // Fallback: if no active trip, use the old method
+        await tripService.updateBusLocation(
+          widget.busId,
+          position.latitude,
+          position.longitude,
+          position.heading,
+          position.speed,
+        );
+      }
     } catch (e) {
       print('Failed to update bus location: $e');
       // We don't want to show errors to the driver for every update failure
