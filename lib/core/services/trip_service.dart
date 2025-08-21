@@ -293,8 +293,9 @@ class TripService with ChangeNotifier {
       _isTracking = true;
       _positionSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
+          // Use slightly lower distance for smoother updates; accuracy tuned for general tracking
           accuracy: LocationAccuracy.high,
-          distanceFilter: 10,
+          distanceFilter: 5,
         ),
       ).listen((Position position) async {
         // Store previous location before updating current
@@ -1115,14 +1116,34 @@ class TripService with ChangeNotifier {
       
       // Start location tracking with more frequent updates for live sharing
       _positionSubscription?.cancel();
+      // Use best accuracy for driving; keep a low distanceFilter and gate by speed in code
+      Position? lastProcessedPosition;
       _positionSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5, // Update every 5 meters
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 3,
+          timeLimit: Duration(seconds: 10),
         ),
       ).listen(
         (Position position) async {
           if (_currentTrip != null && _isLiveLocationSharing) {
+            // Dynamically adjust processing frequency based on speed (km/h)
+            final double speedKmh = (position.speed) * 3.6;
+            final double minDistanceMeters = speedKmh > 30 ? 10.0 : 5.0;
+
+            if (lastProcessedPosition != null) {
+              final double moved = Geolocator.distanceBetween(
+                lastProcessedPosition!.latitude,
+                lastProcessedPosition!.longitude,
+                position.latitude,
+                position.longitude,
+              );
+              if (moved < minDistanceMeters) {
+                return; // Skip minor movements to save battery/data
+              }
+            }
+            lastProcessedPosition = position;
+
             _currentLocation = latlong2.LatLng(position.latitude, position.longitude);
             
             // Add to current trip polyline

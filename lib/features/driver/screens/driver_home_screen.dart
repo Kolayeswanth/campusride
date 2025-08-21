@@ -22,6 +22,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   void initState() {
     super.initState();
     _loadRoutes();
+    // Show battery optimization tip once per session
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'For best tracking, disable battery optimization for CampusRide',
+          ),
+          duration: Duration(seconds: 6),
+        ),
+      );
+    });
   }
 
   Future<void> _loadRoutes() async {
